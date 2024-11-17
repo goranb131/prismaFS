@@ -361,18 +361,33 @@ static int myfs_unlink(const char *path)
 
     // Case 1: File exists in the session layer
     if (access(session_fpath, F_OK) == 0) {
+        // Attempt to delete the file in the session layer
         if (unlink(session_fpath) == -1) {
-            perror("Error deleting from session layer");
-            return -errno; // Propagate error
+            perror("unlink: Error deleting from session layer");
+            return -errno; // Return the error if deletion fails
         }
-        printf("File deleted from session layer: %s\n", session_fpath);
+        printf("unlink: File successfully deleted from session layer: %s\n", session_fpath);
         return 0; // Successfully unlinked
     }
 
     // Case 2: File exists only in the base layer
-    // In the simplified design, we do nothing for files in the base layer.
-    printf("File not found in session layer, ignoring base layer: %s\n", path);
-    return -ENOENT; // File does not exist in the session layer
+    if (access(base_fpath, F_OK) == 0) {
+        // Create a `.deleted` marker in the session layer
+        char deleted_marker[PATH_MAX];
+        snprintf(deleted_marker, PATH_MAX, "%s.deleted", session_fpath);
+        int fd = open(deleted_marker, O_WRONLY | O_CREAT, 0644);
+        if (fd == -1) {
+            perror("unlink: Error creating .deleted marker");
+            return -errno; // Return the error if marker creation fails
+        }
+        close(fd);
+        printf("unlink: File in base layer masked with .deleted marker: %s\n", deleted_marker);
+        return 0; // Successfully masked
+    }
+
+    // Case 3: File not found in either layer
+    printf("unlink: File not found in session or base layer: %s\n", path);
+    return -ENOENT; // File not found
 }
 
 static int myfs_utimens(const char *path, const struct timespec ts[2])
