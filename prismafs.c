@@ -1,6 +1,6 @@
 /*
  * PrismaFS: A lightweight, layered filesystem inspired by Plan 9.
- * 
+ * Version: 1.0.0
  * Copyright 2024 Goran Bunic, ITHAS 
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,24 +17,25 @@
  */
 
 #define FUSE_USE_VERSION 26
+#define PRISMAFS_VERSION "1.0.0"
 
 #include <fuse.h>
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
-#include <fcntl.h>
+#include <fcntl.h>     // open, and fd
 #include <dirent.h>
-#include <unistd.h>    // For close, pread, pwrite
+#include <unistd.h>    // for read, write, close, pread, pwrite, mkdir, rmdir, unlink
 #include <limits.h>    // For PATH_MAX
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <stdlib.h>
 
-static const char *base_path_initial = "/"; // Initial base layer path
+static const char *base_path_initial = "/"; // initial base layer path
 static char base_path[PATH_MAX] = "/";
-static char session_path[PATH_MAX]; // The session layer (writable per pane)
+static char session_path[PATH_MAX]; // session layer 
 
-// Helper function to construct the full path in the session layer
+// helper function to construct full path in the session layer
 static void session_fullpath(char fpath[PATH_MAX], const char *path)
 {
     if (session_path[strlen(session_path) - 1] == '/' && path[0] == '/')
@@ -43,7 +44,7 @@ static void session_fullpath(char fpath[PATH_MAX], const char *path)
         snprintf(fpath, PATH_MAX, "%s%s", session_path, path);
 }
 
-// Helper function to construct the full path in the base layer
+// helper function to construct full path in the base layer
 static void base_fullpath_func(char fpath[PATH_MAX], const char *path)
 {
     if (base_path[strlen(base_path) - 1] == '/' && path[0] == '/')
@@ -52,6 +53,7 @@ static void base_fullpath_func(char fpath[PATH_MAX], const char *path)
         snprintf(fpath, PATH_MAX, "%s%s", base_path, path);
 }
 
+// getattr operation function implementation
 static int myfs_getattr(const char *path, struct stat *stbuf)
 {
     char fpath[PATH_MAX];
@@ -78,6 +80,7 @@ static int myfs_getattr(const char *path, struct stat *stbuf)
     return -ENOENT;
 }
 
+//readdir operation function implementation
 static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
                         off_t offset, struct fuse_file_info *fi)
 {
@@ -88,7 +91,7 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     char marker_fpath[PATH_MAX];
     char session_file_path[PATH_MAX];
 
-    // Step 1: Read files from the session layer
+    // read files from session layer
     session_fullpath(session_fpath, path);
     dp_session = opendir(session_fpath);
     if (dp_session != NULL)
@@ -111,7 +114,7 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
         closedir(dp_session);
     }
 
-    // Step 2: Read files from the base layer, masking files in the session layer
+    // read files from base layer, masking files in the session layer
     base_fullpath_func(base_fpath, path);
     dp_base = opendir(base_fpath);
     if (dp_base == NULL)
@@ -119,21 +122,21 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 
     while ((de_base = readdir(dp_base)) != NULL)
     {
-        // Skip hidden files
+        // skip hidden files
         if (de_base->d_name[0] == '.')
             continue;
 
-        // Construct the path to the `.deleted` marker in the session layer
+        // construct a path to .deleted marker in session layer
         snprintf(marker_fpath, PATH_MAX, "%s/%s.deleted", session_fpath, de_base->d_name);
 
         // If a `.deleted` marker exists, skip this file
         if (access(marker_fpath, F_OK) == 0)
             continue;
 
-        // Construct the full path to the file in the session layer
+        // construct full path to file in the session layer
         snprintf(session_file_path, PATH_MAX, "%s/%s", session_fpath, de_base->d_name);
 
-        // If the file exists in the session layer, skip to avoid duplicates
+        // if session layer file exists, skip to avoid duplicates
         if (access(session_file_path, F_OK) == 0)
             continue;
 
@@ -150,12 +153,13 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     return 0;
 }
 
+// open operation function implementation
 static int myfs_open(const char *path, struct fuse_file_info *fi)
 {
     int res;
     char fpath[PATH_MAX];
 
-    // First, try to open the file in the session layer
+    // try to open file in session layer
     session_fullpath(fpath, path);
     res = open(fpath, fi->flags);
     if (res != -1)
@@ -164,7 +168,7 @@ static int myfs_open(const char *path, struct fuse_file_info *fi)
         return 0;
     }
 
-    // If not in session layer, try the base layer
+    // if not in session layer, try inside base layer
     base_fullpath_func(fpath, path);
     res = open(fpath, fi->flags);
     if (res == -1)
@@ -174,6 +178,8 @@ static int myfs_open(const char *path, struct fuse_file_info *fi)
     return 0;
 }
 
+
+// read operation function implementation
 static int myfs_read(const char *path, char *buf, size_t size, off_t offset,
                      struct fuse_file_info *fi)
 {
@@ -181,12 +187,12 @@ static int myfs_read(const char *path, char *buf, size_t size, off_t offset,
     int res;
     char fpath[PATH_MAX];
 
-    // Try to read from the session layer first
+    // try to read from session layer first
     session_fullpath(fpath, path);
     fd = open(fpath, O_RDONLY);
     if (fd == -1)
     {
-        // If not in session layer, read from base layer
+        // if not in session layer, read from base layer
         base_fullpath_func(fpath, path);
         fd = open(fpath, O_RDONLY);
         if (fd == -1)
@@ -201,6 +207,7 @@ static int myfs_read(const char *path, char *buf, size_t size, off_t offset,
     return res;
 }
 
+// write operation function implementation
 static int myfs_write(const char *path, const char *buf, size_t size,
                       off_t offset, struct fuse_file_info *fi)
 {
@@ -208,16 +215,16 @@ static int myfs_write(const char *path, const char *buf, size_t size,
     int res;
     char fpath[PATH_MAX];
 
-    // Write operations should happen in the session layer
+    // write operations need to happen in session layer
     session_fullpath(fpath, path);
 
-    // If the file doesn't exist in the session layer, copy it from the base layer
+    // if file doesnt exist in session layer, copy it from base layer
     if (access(fpath, F_OK) == -1)
     {
         char base_fpath[PATH_MAX];
         base_fullpath_func(base_fpath, path);
 
-        // Create directories if needed
+        // create directories 
         char *dir_end = strrchr(fpath, '/');
         if (dir_end)
         {
@@ -227,7 +234,7 @@ static int myfs_write(const char *path, const char *buf, size_t size,
             mkdir(dir_path, 0755);
         }
 
-        // Copy the file from the base layer
+        // copy file from base layer
         int source_fd = open(base_fpath, O_RDONLY);
         int dest_fd = open(fpath, O_WRONLY | O_CREAT, 0644);
 
@@ -247,7 +254,7 @@ static int myfs_write(const char *path, const char *buf, size_t size,
             close(dest_fd);
     }
 
-    // Now open the file in the session layer for writing
+    // open file in session layer for writing
     fd = open(fpath, O_WRONLY);
     if (fd == -1)
         return -errno;
@@ -260,20 +267,21 @@ static int myfs_write(const char *path, const char *buf, size_t size,
     return res;
 }
 
+// truncate operation function implementation
 static int myfs_truncate(const char *path, off_t size)
 {
     char fpath[PATH_MAX];
 
-    // Truncate should happen in the session layer
+    // truncate happens in session layer
     session_fullpath(fpath, path);
 
-    // If the file doesn't exist in the session layer, copy it from the base layer
+    // if file doesnt exist in session layer - copy it from base layer
     if (access(fpath, F_OK) == -1)
     {
         char base_fpath[PATH_MAX];
         base_fullpath_func(base_fpath, path);
 
-        // Create directories if needed
+        // create dirs
         char *dir_end = strrchr(fpath, '/');
         if (dir_end)
         {
@@ -283,7 +291,7 @@ static int myfs_truncate(const char *path, off_t size)
             mkdir(dir_path, 0755);
         }
 
-        // Copy the file from the base layer
+        // copy file from base layer
         int source_fd = open(base_fpath, O_RDONLY);
         int dest_fd = open(fpath, O_WRONLY | O_CREAT, 0644);
 
@@ -303,7 +311,7 @@ static int myfs_truncate(const char *path, off_t size)
             close(dest_fd);
     }
 
-    // Now truncate the file in the session layer
+    // truncate file in the session layer
     int res = truncate(fpath, size);
     if (res == -1)
         return -errno;
@@ -311,15 +319,16 @@ static int myfs_truncate(const char *path, off_t size)
     return 0;
 }
 
+// create operation function implementation
 static int myfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 {
     int res;
     char fpath[PATH_MAX];
 
-    // Create the file in the session layer
+    // create file in session layer
     session_fullpath(fpath, path);
 
-    // create directories if needed
+    // create directories if required
     char *dir_end = strrchr(fpath, '/');
     if (dir_end)
     {
@@ -337,8 +346,11 @@ static int myfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
     return 0;
 }
 
+// mkdir operation function implementation
 static int myfs_mkdir(const char *path, mode_t mode) {
     char fpath[PATH_MAX];
+
+    // construct full path for the directory to be created
     session_fullpath(fpath, path); 
 
     int res = mkdir(fpath, mode);
@@ -348,14 +360,14 @@ static int myfs_mkdir(const char *path, mode_t mode) {
     return 0;
 }
 
-
+// rmdir operation function implementation
 static int myfs_rmdir(const char *path) {
     char fpath[PATH_MAX];
 
-    // Construct the full path for the directory to be removed
+    // construct full path for the directory to be removed
     session_fullpath(fpath, path);
 
-    // Attempt to remove the directory
+    // try to remove the directory
     int res = rmdir(fpath);
     if (res == -1) {
         perror("rmdir failed");
@@ -365,7 +377,7 @@ static int myfs_rmdir(const char *path) {
     return 0;
 }
 
-
+// chmod operation function implementation
 static int myfs_chmod(const char *path, mode_t mode)
 {
     char fpath[PATH_MAX];
@@ -397,6 +409,7 @@ static int myfs_chmod(const char *path, mode_t mode)
     return -ENOENT;
 }
 
+// unlink operation function implementation
 static int myfs_unlink(const char *path)
 {
     char session_fpath[PATH_MAX];
@@ -408,7 +421,7 @@ static int myfs_unlink(const char *path)
 
     // when file exists in the session layer
     if (access(session_fpath, F_OK) == 0) {
-        // attempt to delete the file in the session layer
+        // try to delete file in session layer
         if (unlink(session_fpath) == -1) {
             perror("unlink: Error deleting from session layer");
             return -errno; // error if delete fails
@@ -437,6 +450,7 @@ static int myfs_unlink(const char *path)
     return -ENOENT; // file not found
 }
 
+// utimensat operation function implementation (POSIX)
 static int myfs_utimens(const char *path, const struct timespec ts[2])
 {
     char fpath[PATH_MAX];
@@ -470,7 +484,13 @@ static struct fuse_operations myfs_oper = {
 
 int main(int argc, char *argv[])
 {
-    // The session path is passed via an environment variable
+    // POSIX-compliant version flag
+    if (argc > 1 && (strcmp(argv[1], "-v") == 0 || strcmp(argv[1], "-V") == 0)) {
+        printf("PrismaFS Version: %s\n", PRISMAFS_VERSION);
+        return 0;
+    }
+
+    // session path is passed via environment variable
     char *session_dir = getenv("SESSION_LAYER_DIR");
     if (session_dir == NULL)
     {
