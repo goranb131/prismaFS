@@ -1,3 +1,21 @@
+/*
+ * PrismaFS: A lightweight, layered filesystem inspired by Plan 9.
+ * 
+ * Copyright 2024 Goran Bunic, ITHAS 
+ * 
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * 
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ * 
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 #define FUSE_USE_VERSION 26
 
 #include <fuse.h>
@@ -301,7 +319,7 @@ static int myfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
     // Create the file in the session layer
     session_fullpath(fpath, path);
 
-    // Create directories if needed
+    // create directories if needed
     char *dir_end = strrchr(fpath, '/');
     if (dir_end)
     {
@@ -319,11 +337,22 @@ static int myfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
     return 0;
 }
 
+static int myfs_mkdir(const char *path, mode_t mode) {
+    char fpath[PATH_MAX];
+    session_fullpath(fpath, path); 
+
+    int res = mkdir(fpath, mode);
+    if (res == -1) {
+        return -errno;
+    }
+    return 0;
+}
+
 static int myfs_chmod(const char *path, mode_t mode)
 {
     char fpath[PATH_MAX];
 
-    // Try to change mode in the session layer first
+    // first try to change mode in session layer
     session_fullpath(fpath, path);
     if (access(fpath, F_OK) == 0) {
         if (chmod(fpath, mode) == -1) {
@@ -334,7 +363,7 @@ static int myfs_chmod(const char *path, mode_t mode)
         return 0;
     }
 
-    // If not found in session layer, try the base layer
+    // if not found, try in base layer
     base_fullpath_func(fpath, path);
     if (access(fpath, F_OK) == 0) {
         if (chmod(fpath, mode) == -1) {
@@ -345,7 +374,7 @@ static int myfs_chmod(const char *path, mode_t mode)
         return 0;
     }
 
-    // If the file does not exist in either layer
+    // if file doesnt exist in any layer
     printf("chmod: File not found: %s\n", path);
     return -ENOENT;
 }
@@ -355,46 +384,46 @@ static int myfs_unlink(const char *path)
     char session_fpath[PATH_MAX];
     char base_fpath[PATH_MAX];
 
-    // Construct full paths
+    // full paths
     session_fullpath(session_fpath, path);
     base_fullpath_func(base_fpath, path);
 
-    // Case 1: File exists in the session layer
+    // when file exists in the session layer
     if (access(session_fpath, F_OK) == 0) {
-        // Attempt to delete the file in the session layer
+        // attempt to delete the file in the session layer
         if (unlink(session_fpath) == -1) {
             perror("unlink: Error deleting from session layer");
-            return -errno; // Return the error if deletion fails
+            return -errno; // error if delete fails
         }
         printf("unlink: File successfully deleted from session layer: %s\n", session_fpath);
-        return 0; // Successfully unlinked
+        return 0; // unlinked
     }
 
-    // Case 2: File exists only in the base layer
+    // when file exists only in the base layer
     if (access(base_fpath, F_OK) == 0) {
-        // Create a `.deleted` marker in the session layer
+        // .deleted marker for deleted file in session layer
         char deleted_marker[PATH_MAX];
         snprintf(deleted_marker, PATH_MAX, "%s.deleted", session_fpath);
         int fd = open(deleted_marker, O_WRONLY | O_CREAT, 0644);
         if (fd == -1) {
             perror("unlink: Error creating .deleted marker");
-            return -errno; // Return the error if marker creation fails
+            return -errno; // error if marker fails being created
         }
         close(fd);
         printf("unlink: File in base layer masked with .deleted marker: %s\n", deleted_marker);
-        return 0; // Successfully masked
+        return 0; // masked
     }
 
-    // Case 3: File not found in either layer
+    // if file is not found in any layer
     printf("unlink: File not found in session or base layer: %s\n", path);
-    return -ENOENT; // File not found
+    return -ENOENT; // file not found
 }
 
 static int myfs_utimens(const char *path, const struct timespec ts[2])
 {
     char fpath[PATH_MAX];
 
-    // Update times in the session layer
+    // update times in the session layer
     session_fullpath(fpath, path);
 
     int res = utimensat(0, fpath, ts, AT_SYMLINK_NOFOLLOW);
@@ -404,7 +433,7 @@ static int myfs_utimens(const char *path, const struct timespec ts[2])
     return 0;
 }
 
-// Define operations
+// FUSE operations
 static struct fuse_operations myfs_oper = {
     .getattr  = myfs_getattr,
     .readdir  = myfs_readdir,
@@ -415,8 +444,9 @@ static struct fuse_operations myfs_oper = {
     .create   = myfs_create,
     .utimens  = myfs_utimens,
     .unlink   = myfs_unlink,
-    .chmod    = myfs_chmod
-    // You can add more operations as needed
+    .chmod    = myfs_chmod,
+    .mkdir    = myfs_mkdir
+    // extend any other operations 
 };
 
 int main(int argc, char *argv[])
@@ -428,20 +458,21 @@ int main(int argc, char *argv[])
         fprintf(stderr, "SESSION_LAYER_DIR environment variable is not set.\n");
         exit(1);
     }
-    strncpy(session_path, session_dir, PATH_MAX - 1);
-    session_path[PATH_MAX - 1] = '\0'; // Ensure null-termination
 
-    // Optionally, you can set base_path via an environment variable
+    strncpy(session_path, session_dir, PATH_MAX - 1);
+    session_path[PATH_MAX - 1] = '\0'; 
+
+    // base path environment variable
     char *base_dir = getenv("BASE_LAYER_DIR");
     if (base_dir != NULL)
     {
         strncpy(base_path, base_dir, PATH_MAX - 1);
-        base_path[PATH_MAX - 1] = '\0'; // Ensure null-termination
+        base_path[PATH_MAX - 1] = '\0'; 
     }
     else
     {
         strncpy(base_path, base_path_initial, PATH_MAX - 1);
-        base_path[PATH_MAX - 1] = '\0'; // Ensure null-termination
+        base_path[PATH_MAX - 1] = '\0'; 
     }
 
     return fuse_main(argc, argv, &myfs_oper, NULL);
