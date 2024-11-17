@@ -348,6 +348,24 @@ static int myfs_mkdir(const char *path, mode_t mode) {
     return 0;
 }
 
+
+static int myfs_rmdir(const char *path) {
+    char fpath[PATH_MAX];
+
+    // Construct the full path for the directory to be removed
+    session_fullpath(fpath, path);
+
+    // Attempt to remove the directory
+    int res = rmdir(fpath);
+    if (res == -1) {
+        perror("rmdir failed");
+        return -errno;
+    }
+
+    return 0;
+}
+
+
 static int myfs_chmod(const char *path, mode_t mode)
 {
     char fpath[PATH_MAX];
@@ -445,7 +463,8 @@ static struct fuse_operations myfs_oper = {
     .utimens  = myfs_utimens,
     .unlink   = myfs_unlink,
     .chmod    = myfs_chmod,
-    .mkdir    = myfs_mkdir
+    .mkdir    = myfs_mkdir,
+    .rmdir    = myfs_rmdir
     // extend any other operations 
 };
 
