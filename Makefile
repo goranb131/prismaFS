@@ -1,5 +1,5 @@
 # Compiler and flags
-CC = gcc
+CC = clang
 CFLAGS = -Wall -D_FILE_OFFSET_BITS=64 -I/usr/local/include
 LDFLAGS = /usr/local/lib/libosxfuse.2.dylib
 
@@ -26,7 +26,7 @@ install: $(TARGET)
 	@mkdir -p $(INSTALL_DIR)
 	@cp $(TARGET) $(INSTALL_DIR)/
 	@chmod +x $(INSTALL_DIR)/$(TARGET)
-	@echo "Installation complete. You can now run '$(TARGET)' from anywhere."
+	@echo "Installation complete."
 
 # Uninstall the binary
 uninstall:
