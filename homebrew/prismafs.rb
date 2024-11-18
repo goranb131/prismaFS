@@ -1,16 +1,12 @@
 class Prismafs < Formula
   desc "A lightweight, layered userspace filesystem inspired by Plan 9"
   homepage "http://ithas-site.com"
-  url "https://github.com/goranb131/ITHAS-prismaFS/archive/v1.0.0.tar.gz"
-  sha256 "4a1e89d4dbd49b0e8d6d1374911985d2b5e53ab15f55d35d26a098caa473ebd6"
+  url "https://github.com/goranb131/ITHAS-prismaFS/releases/download/v1.0.0/prismafs-1.0.0.tar.gz"
+  sha256 "02ca028430f75e8746e3c7e476b3c4368d3c7752bd002318d11ac7d634d442b8"
   license "Apache-2.0"
 
-  depends_on "clang" => :build
-  depends_on "macfuse"
-
   def install
-    system "make", "CC=clang"
-    bin.install "prismafs"
+    system "make", "CC=clang", "install", "INSTALL_DIR=#{prefix}/bin", "MAN_DIR=#{man1}"
   end
 
   test do
