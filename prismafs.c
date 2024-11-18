@@ -34,8 +34,10 @@
 #include <stdlib.h>
 
 static const char *base_path_initial = "/"; // initial base layer path
-//static char base_path[PATH_MAX] = "/";
+//static char base_path[PATH_MAX] = "/"; //commented out for older ver single directory per base layer
 
+// for: base_paths and num_base_layers
+// multiple base layers can be combined for session view in single mount
 static char base_paths[MAX_BASE_LAYERS][PATH_MAX];
 static int num_base_layers = 0;
 
@@ -58,12 +60,12 @@ static int base_fullpath_func(char fpath[PATH_MAX], const char *path) {
         else
             snprintf(fpath, PATH_MAX, "%s%s", base_paths[i], path);
 
-        // Check if the file exists in the current base layer
+        // check if file exists in current base layer
         if (access(fpath, F_OK) == 0) {
-            return 0; // File found in this base layer
+            return 0; // file found in this base layer
         }
     }
-    return -1; // File not found in any base layer
+    return -1; // file not found in any base layer
 }
 
 // getattr operation function implementation
@@ -97,7 +99,7 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     char marker_fpath[PATH_MAX];
     char session_file_path[PATH_MAX];
 
-    // Read files from the session layer first
+    // read files from session layer first
     session_fullpath(session_fpath, path);
     dp_session = opendir(session_fpath);
     if (dp_session != NULL) {
@@ -117,7 +119,7 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
         closedir(dp_session);
     }
 
-    // Read files from all base layers, respecting `.deleted` markers in the session layer
+    // read files from all base layers, minding .deleted markers in the session layer
     for (int i = 0; i < num_base_layers; i++) {
         snprintf(base_fpath, PATH_MAX, "%s%s", base_paths[i], path);
         dp_base = opendir(base_fpath);
@@ -125,21 +127,21 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
             continue;
 
         while ((de_base = readdir(dp_base)) != NULL) {
-            // Skip hidden files
+            // skip hidden files
             if (de_base->d_name[0] == '.')
                 continue;
 
-            // Construct `.deleted` marker path
+            // .deleted marker path for deleted files in session layer
             snprintf(marker_fpath, PATH_MAX, "%s/%s.deleted", session_fpath, de_base->d_name);
 
-            // Skip files that are marked as deleted
+            // skip files that are marked .deleted
             if (access(marker_fpath, F_OK) == 0)
                 continue;
 
-            // Construct full path to check if the file exists in the session layer
+            // create full path to check if the file exists in session layer
             snprintf(session_file_path, PATH_MAX, "%s/%s", session_fpath, de_base->d_name);
 
-            // Skip files that already exist in the session layer
+            // skip files that already exist in the session layer
             if (access(session_file_path, F_OK) == 0)
                 continue;
 
@@ -190,12 +192,12 @@ static int myfs_read(const char *path, char *buf, size_t size, off_t offset,
     int res;
     char fpath[PATH_MAX];
 
-    // Try session layer first
+    // session layer first
     session_fullpath(fpath, path);
     fd = open(fpath, O_RDONLY);
     if (fd != -1) goto read_file;
 
-    // Try each base layer
+    // iterate each base layer
     for (int i = 0; i < num_base_layers; i++) {
         if (base_fullpath_func(fpath, path) == 0) {
             fd = open(fpath, O_RDONLY);
@@ -506,20 +508,20 @@ int main(int argc, char *argv[])
     session_path[PATH_MAX - 1] = '\0'; 
 
     // base path environment variable
-char *base_dirs = getenv("BASE_LAYER_DIRS"); // Comma-separated base directories
-if (base_dirs) {
-    char *token = strtok(base_dirs, ",");
-    while (token && num_base_layers < MAX_BASE_LAYERS) {
-        strncpy(base_paths[num_base_layers], token, PATH_MAX - 1);
-        base_paths[num_base_layers][PATH_MAX - 1] = '\0';
-        num_base_layers++;
-        token = strtok(NULL, ",");
+    char *base_dirs = getenv("BASE_LAYER_DIRS"); // multiple base directories "," separated
+    if (base_dirs) {
+        char *token = strtok(base_dirs, ",");
+        while (token && num_base_layers < MAX_BASE_LAYERS) {
+            strncpy(base_paths[num_base_layers], token, PATH_MAX - 1);
+            base_paths[num_base_layers][PATH_MAX - 1] = '\0';
+            num_base_layers++;
+            token = strtok(NULL, ",");
+        }
+    } else {
+        strncpy(base_paths[0], base_path_initial, PATH_MAX - 1);
+        base_paths[0][PATH_MAX - 1] = '\0';
+        num_base_layers = 1;
     }
-} else {
-    strncpy(base_paths[0], base_path_initial, PATH_MAX - 1);
-    base_paths[0][PATH_MAX - 1] = '\0';
-    num_base_layers = 1;
-}
 
     return fuse_main(argc, argv, &myfs_oper, NULL);
 }
