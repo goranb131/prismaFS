@@ -1,0 +1,57 @@
+.TH PRISMAFS 1 "November 2024" "PrismaFS 1.0.0" "User Commands"
+.SH NAME
+prismafs \- lightweight, layered filesystem inspired by Plan 9
+.SH SYNOPSIS
+.B prismafs
+[\-v | \-h] <mountpoint>
+.SH DESCRIPTION
+.B PrismaFS
+is a lightweight, layered filesystem inspired by Plan 9. It allows users to overlay base filesystems with session-specific layers for experimentation, isolation, and flexibility.
+
+This utility mounts PrismaFS at the specified
+.I mountpoint
+, using directories defined by the environment variables
+.I SESSION_LAYER_DIR
+and
+.I BASE_LAYER_DIRS.
+
+.SH OPTIONS
+.TP
+.B \-v
+Displays the current version of PrismaFS and exits.
+.TP
+.B \-h
+Displays this help message and exits.
+
+.SH ENVIRONMENT VARIABLES
+.TP
+.B SESSION_LAYER_DIR
+Defines the directory used for session-specific layers.
+.TP
+.B BASE_LAYER_DIRS
+Comma-separated list of base directories to use as layers.
+
+.SH EXAMPLES
+Mount PrismaFS with a session layer and one base layer:
+.nf
+    export SESSION_LAYER_DIR=/tmp/session
+    export BASE_LAYER_DIRS=/tmp/base1
+    prismafs /tmp/prismafs_mount
+.fi
+
+Mount PrismaFS with multiple base layers:
+.nf
+    export SESSION_LAYER_DIR=/tmp/session
+    export BASE_LAYER_DIRS="/tmp/base1,/tmp/base2"
+    prismafs /tmp/prismafs_mount
+.fi
+
+Display the PrismaFS version:
+.nf
+    prismafs -v
+.fi
+
+.SH AUTHOR
+Goran Bunic, ITHAS
+.SH COPYRIGHT
+Copyright 2024. Released under the Apache License 2.0.
