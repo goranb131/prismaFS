@@ -1,8 +1,8 @@
 class Prismafs < Formula
   desc "A lightweight, layered userspace filesystem inspired by Plan 9"
   homepage "http://ithas-site.com"
-  url "https://github.com/goranb131/ITHAS-prismaFS/releases/download/v1.0.0/prismafs-1.0.0.tar.gz"
-  sha256 "02ca028430f75e8746e3c7e476b3c4368d3c7752bd002318d11ac7d634d442b8"
+  url "https://github.com/goranb131/ITHAS-prismaFS/archive/refs/tags/v1.0.0.tar.gz"
+  sha256 "5b8e44706496dbebd696d07da7938570f54aba004c1ef894ba99f03dbbebb367"
   license "Apache-2.0"
 
   def install
