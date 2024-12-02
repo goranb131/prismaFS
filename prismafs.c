@@ -117,10 +117,60 @@ static int myfs_access(const char *path, int mask) {
     return 0;
 }
 
-//readdir operation function implementation
-// readdir operation function implementation
+
+
+// Define the struct filename_node outside of any function
+struct filename_node {
+    char *name;
+    struct filename_node *next;
+};
+
+// Helper function to check if a filename is already in the list
+static int is_in_list(struct filename_node *filename_list, const char *name) {
+    struct filename_node *current = filename_list;
+    while (current != NULL) {
+        if (strcmp(current->name, name) == 0)
+            return 1;
+        current = current->next;
+    }
+    return 0;
+}
+
+// Helper function to add a filename to the list
+static void add_to_list(struct filename_node **filename_list_ptr, const char *name) {
+    struct filename_node *new_node = malloc(sizeof(struct filename_node));
+    if (new_node == NULL) {
+        perror("malloc");
+        return;
+    }
+    new_node->name = strdup(name);
+    if (new_node->name == NULL) {
+        perror("strdup");
+        free(new_node);
+        return;
+    }
+    new_node->next = *filename_list_ptr;
+    *filename_list_ptr = new_node;
+}
+
+// `myfs_readdir` function implementation
 static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
                         off_t offset, struct fuse_file_info *fi) {
+    (void) offset;
+    (void) fi;
+
+    printf("myfs_readdir called on path: %s\n", path);
+    fflush(stdout);
+
+    // Variable declarations at the beginning
+    struct filename_node *filename_list = NULL;
+    DIR *dp;
+    struct dirent *de;
+    char fpath[PATH_MAX];
+    char marker_fpath[PATH_MAX];
+    struct filename_node *current;
+    struct filename_node *next;
+
     // Handle the root directory "/"
     if (strcmp(path, "/") == 0) {
         // Add standard entries
@@ -128,10 +178,14 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
         filler(buf, "..", NULL, 0);
 
         // Include "dev" directory
-        filler(buf, "dev", NULL, 0);
-
-        // Proceed to read other entries in the root directory
-        // Continue with existing code to read from session and base layers
+        if (!is_in_list(filename_list, "dev")) {
+            struct stat st;
+            memset(&st, 0, sizeof(st));
+            st.st_mode = S_IFDIR | 0755;
+            if (filler(buf, "dev", &st, 0))
+                goto cleanup;
+            add_to_list(&filename_list, "dev");
+        }
     } else if (strcmp(path, "/dev") == 0) {
         // Handle the "/dev" directory
         // Add standard entries
@@ -139,83 +193,102 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
         filler(buf, "..", NULL, 0);
 
         // Include "cpu" file
-        filler(buf, "cpu", NULL, 0);
-
-        return 0; // Since "/dev" only contains "cpu", we can return here
-    }
-
-    // Existing code for other directories
-    // Now proceed to read entries from session and base layers
-    DIR *dp_session, *dp_base;
-    struct dirent *de_session, *de_base;
-    char session_fpath[PATH_MAX];
-    char base_fpath[PATH_MAX];
-    char marker_fpath[PATH_MAX];
-    char session_file_path[PATH_MAX];
-
-    // read files from session layer first
-    session_fullpath(session_fpath, path);
-    dp_session = opendir(session_fpath);
-    if (dp_session != NULL) {
-        while ((de_session = readdir(dp_session)) != NULL) {
-            // Skip hidden files and `.deleted` markers
-            if (de_session->d_name[0] == '.' || strstr(de_session->d_name, ".deleted") != NULL)
-                continue;
-
-            // Skip "dev" directory if already added
-            if (strcmp(path, "/") == 0 && strcmp(de_session->d_name, "dev") == 0)
-                continue;
-
+        if (!is_in_list(filename_list, "cpu")) {
             struct stat st;
             memset(&st, 0, sizeof(st));
-            st.st_ino = de_session->d_ino;
-            st.st_mode = de_session->d_type << 12;
-
-            if (filler(buf, de_session->d_name, &st, 0))
-                break;
+            st.st_mode = S_IFREG | 0444;  // Regular file with read-only permissions
+            if (filler(buf, "cpu", &st, 0))
+                goto cleanup;
+            add_to_list(&filename_list, "cpu");
         }
-        closedir(dp_session);
+        goto cleanup; // Since "/dev" only contains "cpu", we can return here
     }
 
-    // read files from all base layers, minding .deleted markers in the session layer
-    for (int i = 0; i < num_base_layers; i++) {
-        snprintf(base_fpath, PATH_MAX, "%s%s", base_paths[i], path);
-        dp_base = opendir(base_fpath);
-        if (dp_base == NULL)
-            continue;
-
-        while ((de_base = readdir(dp_base)) != NULL) {
-            // skip hidden files
-            if (de_base->d_name[0] == '.')
+    // Read files from the session layer first
+    session_fullpath(fpath, path);
+    dp = opendir(fpath);
+    if (dp != NULL) {
+        while ((de = readdir(dp)) != NULL) {
+            // Skip hidden files and `.deleted` markers
+            if (de->d_name[0] == '.' || strstr(de->d_name, ".deleted") != NULL)
                 continue;
 
-            // Skip "dev" directory if already added
-            if (strcmp(path, "/") == 0 && strcmp(de_base->d_name, "dev") == 0)
+            // Skip if already in the list
+            if (is_in_list(filename_list, de->d_name))
+                continue;
+
+            // Add the filename to the list
+            add_to_list(&filename_list, de->d_name);
+
+            // Fill the directory entry
+            struct stat st;
+            memset(&st, 0, sizeof(st));
+            st.st_ino = de->d_ino;
+            st.st_mode = de->d_type << 12;
+
+            if (filler(buf, de->d_name, &st, 0))
+                break;
+        }
+        closedir(dp);
+    }
+
+    // Read files from all base layers, minding .deleted markers and duplicates
+    for (int i = 0; i < num_base_layers; i++) {
+        // Construct the path for the current base layer
+        snprintf(fpath, PATH_MAX, "%s%s", base_paths[i], path);
+        dp = opendir(fpath);
+        if (dp == NULL)
+            continue;
+
+        while ((de = readdir(dp)) != NULL) {
+            // Skip hidden files
+            if (de->d_name[0] == '.')
+                continue;
+
+            // Skip if already in the list
+            if (is_in_list(filename_list, de->d_name))
                 continue;
 
             // .deleted marker path for deleted files in session layer
-            snprintf(marker_fpath, PATH_MAX, "%s/%s.deleted", session_fpath, de_base->d_name);
+            session_fullpath(marker_fpath, path);
+            snprintf(marker_fpath, PATH_MAX, "%s/%s.deleted", marker_fpath, de->d_name);
 
-            // skip files that are marked .deleted
+            // Skip files that are marked .deleted
             if (access(marker_fpath, F_OK) == 0)
                 continue;
 
-            // create full path to check if the file exists in session layer
-            snprintf(session_file_path, PATH_MAX, "%s/%s", session_fpath, de_base->d_name);
+            // Create full path to check if the file exists in the session layer
+            char session_file_path[PATH_MAX];
+            session_fullpath(session_file_path, path);
+            snprintf(session_file_path, PATH_MAX, "%s/%s", session_file_path, de->d_name);
 
-            // skip files that already exist in the session layer
+            // Skip files that already exist in the session layer
             if (access(session_file_path, F_OK) == 0)
                 continue;
 
+            // Add the filename to the list
+            add_to_list(&filename_list, de->d_name);
+
+            // Fill the directory entry
             struct stat st;
             memset(&st, 0, sizeof(st));
-            st.st_ino = de_base->d_ino;
-            st.st_mode = de_base->d_type << 12;
+            st.st_ino = de->d_ino;
+            st.st_mode = de->d_type << 12;
 
-            if (filler(buf, de_base->d_name, &st, 0))
+            if (filler(buf, de->d_name, &st, 0))
                 break;
         }
-        closedir(dp_base);
+        closedir(dp);
+    }
+
+cleanup:
+    // Clean up the filename list
+    current = filename_list;
+    while (current != NULL) {
+        next = current->next;
+        free(current->name);
+        free(current);
+        current = next;
     }
 
     return 0;
