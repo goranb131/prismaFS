@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-#define FUSE_USE_VERSION 26
+#define FUSE_USE_VERSION 29
 #define PRISMAFS_VERSION "1.0.0"
 #define MAX_BASE_LAYERS 10
 
@@ -32,6 +32,8 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <stdlib.h>
+#include <sys/sysctl.h> // For sysctl
+#include <stdint.h>     // For int64_t
 
 static const char *base_path_initial = "/"; // initial base layer path
 //static char base_path[PATH_MAX] = "/"; //commented out for older ver single directory per base layer
@@ -70,6 +72,25 @@ static int base_fullpath_func(char fpath[PATH_MAX], const char *path) {
 
 // getattr operation function implementation
 static int myfs_getattr(const char *path, struct stat *stbuf) {
+    memset(stbuf, 0, sizeof(struct stat));
+
+    // Handle the special /dev directory and /dev/cpu file
+    if (strcmp(path, "/") == 0 || strcmp(path, "/dev") == 0) {
+        stbuf->st_mode = S_IFDIR | 0755;  // Directory with permissions
+        stbuf->st_nlink = 2;
+        return 0;
+} else if (strcmp(path, "/dev/cpu") == 0) {
+    // Calculate the size of the content
+    const char *cpu_brand = "Apple M1";  // Since we know the value
+    size_t content_length = strlen("CPU Brand: ") + strlen(cpu_brand) + 1;  // +1 for newline
+
+    stbuf->st_mode = S_IFREG | 0444;  // Regular file with read-only permissions
+    stbuf->st_nlink = 1;
+    stbuf->st_size = content_length;
+    return 0;
+}
+
+    // Existing code for handling other files
     char fpath[PATH_MAX];
     int res;
 
@@ -89,9 +110,42 @@ static int myfs_getattr(const char *path, struct stat *stbuf) {
     return -ENOENT;
 }
 
+static int myfs_access(const char *path, int mask) {
+    printf("access called on path: %s with mask: %d\n", path, mask);  // Debug statement
+
+    // Since we control the permissions, we can always return success
+    return 0;
+}
+
 //readdir operation function implementation
+// readdir operation function implementation
 static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
                         off_t offset, struct fuse_file_info *fi) {
+    // Handle the root directory "/"
+    if (strcmp(path, "/") == 0) {
+        // Add standard entries
+        filler(buf, ".", NULL, 0);
+        filler(buf, "..", NULL, 0);
+
+        // Include "dev" directory
+        filler(buf, "dev", NULL, 0);
+
+        // Proceed to read other entries in the root directory
+        // Continue with existing code to read from session and base layers
+    } else if (strcmp(path, "/dev") == 0) {
+        // Handle the "/dev" directory
+        // Add standard entries
+        filler(buf, ".", NULL, 0);
+        filler(buf, "..", NULL, 0);
+
+        // Include "cpu" file
+        filler(buf, "cpu", NULL, 0);
+
+        return 0; // Since "/dev" only contains "cpu", we can return here
+    }
+
+    // Existing code for other directories
+    // Now proceed to read entries from session and base layers
     DIR *dp_session, *dp_base;
     struct dirent *de_session, *de_base;
     char session_fpath[PATH_MAX];
@@ -106,6 +160,10 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
         while ((de_session = readdir(dp_session)) != NULL) {
             // Skip hidden files and `.deleted` markers
             if (de_session->d_name[0] == '.' || strstr(de_session->d_name, ".deleted") != NULL)
+                continue;
+
+            // Skip "dev" directory if already added
+            if (strcmp(path, "/") == 0 && strcmp(de_session->d_name, "dev") == 0)
                 continue;
 
             struct stat st;
@@ -129,6 +187,10 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
         while ((de_base = readdir(dp_base)) != NULL) {
             // skip hidden files
             if (de_base->d_name[0] == '.')
+                continue;
+
+            // Skip "dev" directory if already added
+            if (strcmp(path, "/") == 0 && strcmp(de_base->d_name, "dev") == 0)
                 continue;
 
             // .deleted marker path for deleted files in session layer
@@ -160,8 +222,17 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 }
 
 // open operation function implementation
+// open operation function implementation
 static int myfs_open(const char *path, struct fuse_file_info *fi)
 {
+    printf("open called on path: %s\n", path);  // Debugging statement
+
+    // Handle opening /dev/cpu
+    if (strcmp(path, "/dev/cpu") == 0) {
+        // Since /dev/cpu is a virtual file, we don't need to open a file descriptor
+        return 0;
+    }
+
     int res;
     char fpath[PATH_MAX];
 
@@ -184,33 +255,107 @@ static int myfs_open(const char *path, struct fuse_file_info *fi)
     return 0;
 }
 
+static int myfs_statfs(const char *path, struct statvfs *stbuf) {
+    printf("myfs_statfs called on path: %s\n", path);
+    fflush(stdout);
+
+    // Fill in statvfs structure
+    memset(stbuf, 0, sizeof(struct statvfs));
+    stbuf->f_bsize = 4096;
+    stbuf->f_frsize = 4096;
+    stbuf->f_blocks = 1024 * 1024;
+    stbuf->f_bfree = 1024 * 512;
+    stbuf->f_bavail = 1024 * 512;
+    stbuf->f_files = 1024 * 1024;
+    stbuf->f_ffree = 1024 * 512;
+    stbuf->f_namemax = 255;
+
+    return 0;
+}
+
 
 // read operation function implementation
 static int myfs_read(const char *path, char *buf, size_t size, off_t offset,
                      struct fuse_file_info *fi) {
+    printf("myfs_read called on path: %s\n", path);  // Debug statement
+    fflush(stdout);
+
+    // Handle reading from /dev/cpu
+    if (strcmp(path, "/dev/cpu") == 0) {
+        // Generate CPU stats dynamically
+        char cpu_info[1024];
+        int len;
+
+        // Get the CPU brand string
+        char cpu_brand[256];
+        size_t len_cpu_brand = sizeof(cpu_brand);
+
+        if (sysctlbyname("machdep.cpu.brand_string", cpu_brand, &len_cpu_brand, NULL, 0) == -1) {
+            perror("sysctlbyname");
+            return -EIO;
+        }
+
+        printf("Retrieved CPU brand: %s\n", cpu_brand);
+        fflush(stdout);
+
+        len = snprintf(cpu_info, sizeof(cpu_info), "CPU Brand: %s\n", cpu_brand);
+
+        // Adjust for offset
+        if (offset < len) {
+            if (offset + size > len)
+                size = len - offset;
+            memcpy(buf, cpu_info + offset, size);
+        } else {
+            size = 0;
+        }
+
+        printf("Returning size: %zu\n", size);
+        fflush(stdout);
+
+        return size;
+    }
+
+    // Existing code for handling regular files
     int fd;
     int res;
     char fpath[PATH_MAX];
 
-    // session layer first
+    // Try to open file in session layer
     session_fullpath(fpath, path);
     fd = open(fpath, O_RDONLY);
-    if (fd != -1) goto read_file;
+    if (fd != -1) {
+        // Read from the file
+        res = pread(fd, buf, size, offset);
+        if (res == -1)
+            res = -errno;
+        close(fd);
+        return res;
+    }
 
-    // iterate each base layer
+    // If not in session layer, try each base layer
     for (int i = 0; i < num_base_layers; i++) {
-        if (base_fullpath_func(fpath, path) == 0) {
+        // Construct the full path for the current base layer
+        if (base_paths[i][strlen(base_paths[i]) - 1] == '/' && path[0] == '/')
+            snprintf(fpath, PATH_MAX, "%s%s", base_paths[i], path + 1);
+        else
+            snprintf(fpath, PATH_MAX, "%s%s", base_paths[i], path);
+
+        // Check if the file exists in the current base layer
+        if (access(fpath, F_OK) == 0) {
             fd = open(fpath, O_RDONLY);
-            if (fd != -1) goto read_file;
+            if (fd != -1) {
+                // Read from the file
+                res = pread(fd, buf, size, offset);
+                if (res == -1)
+                    res = -errno;
+                close(fd);
+                return res;
+            }
         }
     }
 
+    // File not found in any layer
     return -ENOENT;
-
-read_file:
-    res = pread(fd, buf, size, offset);
-    close(fd);
-    return res;
 }
 
 // write operation function implementation
@@ -476,10 +621,12 @@ static struct fuse_operations myfs_oper = {
     .getattr  = myfs_getattr,
     .readdir  = myfs_readdir,
     .open     = myfs_open,
+    .access   = myfs_access, 
     .read     = myfs_read,
     .write    = myfs_write,
     .truncate = myfs_truncate,
     .create   = myfs_create,
+    .statfs   = myfs_statfs,
     .utimens  = myfs_utimens,
     .unlink   = myfs_unlink,
     .chmod    = myfs_chmod,
