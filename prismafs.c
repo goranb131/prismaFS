@@ -94,20 +94,39 @@ static int myfs_getattr(const char *path, struct stat *stbuf) {
     char fpath[PATH_MAX];
     int res;
 
-    // Check session layer first
-    session_fullpath(fpath, path);
-    res = lstat(fpath, stbuf);
-    if (res == 0) return 0;
+// Check session layer first
+session_fullpath(fpath, path);
 
-    // Check each base layer
-    for (int i = 0; i < num_base_layers; i++) {
-        if (base_fullpath_func(fpath, path) == 0) {
-            res = lstat(fpath, stbuf);
-            if (res == 0) return 0;
-        }
+// Check if there is a .deleted marker in the session layer
+char deleted_marker[PATH_MAX];
+snprintf(deleted_marker, PATH_MAX, "%s.deleted", fpath);
+if (access(deleted_marker, F_OK) == 0) {
+    // File is masked as deleted
+    return -ENOENT;
+}
+
+res = lstat(fpath, stbuf);
+if (res == 0) return 0;
+
+// Check each base layer
+for (int i = 0; i < num_base_layers; i++) {
+    // Build the path in the base layer
+    if (base_paths[i][strlen(base_paths[i]) - 1] == '/' && path[0] == '/')
+        snprintf(fpath, PATH_MAX, "%s%s", base_paths[i], path + 1);
+    else
+        snprintf(fpath, PATH_MAX, "%s%s", base_paths[i], path);
+
+    // Check if there is a .deleted marker
+    if (access(deleted_marker, F_OK) == 0) {
+        // File is masked as deleted
+        return -ENOENT;
     }
 
-    return -ENOENT;
+    res = lstat(fpath, stbuf);
+    if (res == 0) return 0;
+}
+
+return -ENOENT;
 }
 
 static int myfs_access(const char *path, int mask) {
@@ -310,22 +329,32 @@ static int myfs_open(const char *path, struct fuse_file_info *fi)
     char fpath[PATH_MAX];
 
     // try to open file in session layer
-    session_fullpath(fpath, path);
-    res = open(fpath, fi->flags);
-    if (res != -1)
-    {
-        close(res);
-        return 0;
-    }
+session_fullpath(fpath, path);
+res = open(fpath, fi->flags);
+if (res != -1)
+{
+    close(res);
+    return 0;
+}
 
-    // if not in session layer, try inside base layer
-    base_fullpath_func(fpath, path);
+// Check if there is a .deleted marker in the session layer
+char deleted_marker[PATH_MAX];
+snprintf(deleted_marker, PATH_MAX, "%s.deleted", fpath);
+if (access(deleted_marker, F_OK) == 0) {
+    // File is masked as deleted
+    return -ENOENT;
+}
+
+// if not in session layer and not masked, try inside base layer
+if (base_fullpath_func(fpath, path) == 0) {
     res = open(fpath, fi->flags);
     if (res == -1)
         return -errno;
-
     close(res);
     return 0;
+}
+
+return -ENOENT;
 }
 
 static int myfs_statfs(const char *path, struct statvfs *stbuf) {
@@ -393,42 +422,50 @@ static int myfs_read(const char *path, char *buf, size_t size, off_t offset,
     int res;
     char fpath[PATH_MAX];
 
-    // Try to open file in session layer
-    session_fullpath(fpath, path);
-    fd = open(fpath, O_RDONLY);
-    if (fd != -1) {
-        // Read from the file
-        res = pread(fd, buf, size, offset);
-        if (res == -1)
-            res = -errno;
-        close(fd);
-        return res;
-    }
+   // Try to open file in session layer
+session_fullpath(fpath, path);
+fd = open(fpath, O_RDONLY);
+if (fd != -1) {
+    // Read from the file
+    res = pread(fd, buf, size, offset);
+    if (res == -1)
+        res = -errno;
+    close(fd);
+    return res;
+}
 
-    // If not in session layer, try each base layer
-    for (int i = 0; i < num_base_layers; i++) {
-        // Construct the full path for the current base layer
-        if (base_paths[i][strlen(base_paths[i]) - 1] == '/' && path[0] == '/')
-            snprintf(fpath, PATH_MAX, "%s%s", base_paths[i], path + 1);
-        else
-            snprintf(fpath, PATH_MAX, "%s%s", base_paths[i], path);
+// Check if there is a .deleted marker in the session layer
+char deleted_marker[PATH_MAX];
+snprintf(deleted_marker, PATH_MAX, "%s.deleted", fpath);
+if (access(deleted_marker, F_OK) == 0) {
+    // File is masked as deleted
+    return -ENOENT;
+}
 
-        // Check if the file exists in the current base layer
-        if (access(fpath, F_OK) == 0) {
-            fd = open(fpath, O_RDONLY);
-            if (fd != -1) {
-                // Read from the file
-                res = pread(fd, buf, size, offset);
-                if (res == -1)
-                    res = -errno;
-                close(fd);
-                return res;
-            }
+// If not in session layer and not masked, try each base layer
+for (int i = 0; i < num_base_layers; i++) {
+    // Construct the full path for the current base layer
+    if (base_paths[i][strlen(base_paths[i]) - 1] == '/' && path[0] == '/')
+        snprintf(fpath, PATH_MAX, "%s%s", base_paths[i], path + 1);
+    else
+        snprintf(fpath, PATH_MAX, "%s%s", base_paths[i], path);
+
+    // Check if the file exists in the current base layer
+    if (access(fpath, F_OK) == 0) {
+        fd = open(fpath, O_RDONLY);
+        if (fd != -1) {
+            // Read from the file
+            res = pread(fd, buf, size, offset);
+            if (res == -1)
+                res = -errno;
+            close(fd);
+            return res;
         }
     }
+}
 
-    // File not found in any layer
-    return -ENOENT;
+// File not found in any layer
+return -ENOENT;
 }
 
 // write operation function implementation
