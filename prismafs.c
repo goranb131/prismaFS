@@ -17,7 +17,7 @@
  */
 
 #define FUSE_USE_VERSION 29
-#define PRISMAFS_VERSION "1.0.0"
+#define PRISMAFS_VERSION "1.0.2"
 #define MAX_BASE_LAYERS 10
 
 
