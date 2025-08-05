@@ -1,7 +1,7 @@
 /*
  * PrismaFS: A lightweight, layered filesystem inspired by Plan 9.
  * Version: 1.0.2
- * Copyright 2024 Goran Bunic, ITHAS 
+ * Copyright 2024 Goran Bunić (developed under ITHAS legal entity) 
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
