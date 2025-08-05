@@ -1,5 +1,5 @@
 # Compiler and flags
-CC = clang
+CC = /usr/bin/clang
 CFLAGS = -Wall -D_FILE_OFFSET_BITS=64 -I/usr/local/include
 LDFLAGS = /usr/local/lib/libosxfuse.2.dylib
 

@@ -1,7 +1,7 @@
 /*
  * PrismaFS: A lightweight, layered filesystem inspired by Plan 9.
- * Version: 1.0.0
- * Copyright 2024 Goran Bunic, ITHAS 
+ * Version: 1.0.2
+ * Copyright 2024 Goran Bunić (developed under ITHAS legal entity) 
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,8 +16,8 @@
  * limitations under the License.
  */
 
-#define FUSE_USE_VERSION 26
-#define PRISMAFS_VERSION "1.0.0"
+#define FUSE_USE_VERSION 29
+#define PRISMAFS_VERSION "1.0.2"
 #define MAX_BASE_LAYERS 10
 
 
@@ -32,6 +32,8 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <stdlib.h>
+#include <sys/sysctl.h> // For sysctl
+#include <stdint.h>     // For int64_t
 
 static const char *base_path_initial = "/"; // initial base layer path
 //static char base_path[PATH_MAX] = "/"; //commented out for older ver single directory per base layer
@@ -70,90 +72,238 @@ static int base_fullpath_func(char fpath[PATH_MAX], const char *path) {
 
 // getattr operation function implementation
 static int myfs_getattr(const char *path, struct stat *stbuf) {
+    memset(stbuf, 0, sizeof(struct stat));
+
+    // Handle the special /dev directory and /dev/cpu file
+    if (strcmp(path, "/") == 0 || strcmp(path, "/dev") == 0) {
+        stbuf->st_mode = S_IFDIR | 0755;  // directory permissions
+        stbuf->st_nlink = 2;
+        return 0;
+        } else if (strcmp(path, "/dev/cpu") == 0) {
+    // calculate size of content
+    const char *cpu_brand = "Apple M1";  // testing value
+    size_t content_length = strlen("CPU Brand: ") + strlen(cpu_brand) + 1;  // +1 for newline
+
+    stbuf->st_mode = S_IFREG | 0444;  // regular file with read-only permissions
+    stbuf->st_nlink = 1;
+    stbuf->st_size = content_length;
+    return 0;
+}
+
     char fpath[PATH_MAX];
     int res;
 
-    // Check session layer first
-    session_fullpath(fpath, path);
-    res = lstat(fpath, stbuf);
-    if (res == 0) return 0;
+// check session layer first
+session_fullpath(fpath, path);
 
-    // Check each base layer
-    for (int i = 0; i < num_base_layers; i++) {
-        if (base_fullpath_func(fpath, path) == 0) {
-            res = lstat(fpath, stbuf);
-            if (res == 0) return 0;
-        }
-    }
-
+// check if there is .deleted marker in session layer
+char deleted_marker[PATH_MAX];
+snprintf(deleted_marker, PATH_MAX, "%s.deleted", fpath);
+if (access(deleted_marker, F_OK) == 0) {
+    // file marked/masked as deleted
     return -ENOENT;
 }
 
-//readdir operation function implementation
-static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
-                        off_t offset, struct fuse_file_info *fi) {
-    DIR *dp_session, *dp_base;
-    struct dirent *de_session, *de_base;
-    char session_fpath[PATH_MAX];
-    char base_fpath[PATH_MAX];
-    char marker_fpath[PATH_MAX];
-    char session_file_path[PATH_MAX];
+res = lstat(fpath, stbuf);
+if (res == 0) return 0;
 
-    // read files from session layer first
-    session_fullpath(session_fpath, path);
-    dp_session = opendir(session_fpath);
-    if (dp_session != NULL) {
-        while ((de_session = readdir(dp_session)) != NULL) {
-            // Skip hidden files and `.deleted` markers
-            if (de_session->d_name[0] == '.' || strstr(de_session->d_name, ".deleted") != NULL)
-                continue;
+// check each base layer
+for (int i = 0; i < num_base_layers; i++) {
+    // creating path in base layer
+    if (base_paths[i][strlen(base_paths[i]) - 1] == '/' && path[0] == '/')
+        snprintf(fpath, PATH_MAX, "%s%s", base_paths[i], path + 1);
+    else
+        snprintf(fpath, PATH_MAX, "%s%s", base_paths[i], path);
 
-            struct stat st;
-            memset(&st, 0, sizeof(st));
-            st.st_ino = de_session->d_ino;
-            st.st_mode = de_session->d_type << 12;
-
-            if (filler(buf, de_session->d_name, &st, 0))
-                break;
-        }
-        closedir(dp_session);
+    // check if there is .deleted marker
+    if (access(deleted_marker, F_OK) == 0) {
+        // file marked/masked as deleted
+        return -ENOENT;
     }
 
-    // read files from all base layers, minding .deleted markers in the session layer
+    res = lstat(fpath, stbuf);
+    if (res == 0) return 0;
+}
+
+return -ENOENT;
+}
+
+static int myfs_access(const char *path, int mask) {
+    printf("access called on path: %s with mask: %d\n", path, mask);  // debug 
+
+    // can always return success
+    return 0;
+}
+
+// define struct filename_node
+struct filename_node {
+    char *name;
+    struct filename_node *next;
+};
+
+// helper function to check if a filename is already in linked list
+static int is_in_list(struct filename_node *filename_list, const char *name) {
+    struct filename_node *current = filename_list;
+    while (current != NULL) {
+        if (strcmp(current->name, name) == 0)
+            return 1;
+        current = current->next;
+    }
+    return 0;
+}
+
+// helper function to add a filename to linked list
+static void add_to_list(struct filename_node **filename_list_ptr, const char *name) {
+    struct filename_node *new_node = malloc(sizeof(struct filename_node));
+    if (new_node == NULL) {
+        perror("malloc");
+        return;
+    }
+    new_node->name = strdup(name);
+    if (new_node->name == NULL) {
+        perror("strdup");
+        free(new_node);
+        return;
+    }
+    new_node->next = *filename_list_ptr;
+    *filename_list_ptr = new_node;
+}
+
+// readdir operation function implementation
+static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
+                        off_t offset, struct fuse_file_info *fi) {
+    (void) offset;
+    (void) fi;
+
+    printf("myfs_readdir called on path: %s\n", path);
+    fflush(stdout);
+
+    struct filename_node *filename_list = NULL;
+    DIR *dp;
+    struct dirent *de;
+    char fpath[PATH_MAX];
+    char marker_fpath[PATH_MAX];
+    struct filename_node *current;
+    struct filename_node *next;
+
+    // root directory for default virtual filesystems 
+    if (strcmp(path, "/") == 0) {
+        // Add standard entries
+        filler(buf, ".", NULL, 0);
+        filler(buf, "..", NULL, 0);
+
+        // include "dev" directory
+        if (!is_in_list(filename_list, "dev")) {
+            struct stat st;
+            memset(&st, 0, sizeof(st));
+            st.st_mode = S_IFDIR | 0755;
+            if (filler(buf, "dev", &st, 0))
+                goto cleanup;
+            add_to_list(&filename_list, "dev");
+        }
+    } else if (strcmp(path, "/dev") == 0) {
+        // manage "/dev" directory
+        // add standard entries
+        filler(buf, ".", NULL, 0);
+        filler(buf, "..", NULL, 0);
+
+        // include "cpu" file
+        if (!is_in_list(filename_list, "cpu")) {
+            struct stat st;
+            memset(&st, 0, sizeof(st));
+            st.st_mode = S_IFREG | 0444;  // regular file with read-only permissions
+            if (filler(buf, "cpu", &st, 0))
+                goto cleanup;
+            add_to_list(&filename_list, "cpu");
+        }
+        goto cleanup; // "/dev" only contains "cpu" so we can return here
+    }
+
+    // read files from session layer first
+    session_fullpath(fpath, path);
+    dp = opendir(fpath);
+    if (dp != NULL) {
+        while ((de = readdir(dp)) != NULL) {
+            // skip hidden files and .deleted markers
+            if (de->d_name[0] == '.' || strstr(de->d_name, ".deleted") != NULL)
+                continue;
+
+            // skip if already in linked list
+            if (is_in_list(filename_list, de->d_name))
+                continue;
+
+            // add filename to linked list
+            add_to_list(&filename_list, de->d_name);
+
+            // fill directory entry
+            struct stat st;
+            memset(&st, 0, sizeof(st));
+            st.st_ino = de->d_ino;
+            st.st_mode = de->d_type << 12;
+
+            if (filler(buf, de->d_name, &st, 0))
+                break;
+        }
+        closedir(dp);
+    }
+
+    // read files from all base layers, minding .deleted markers and duplicates
     for (int i = 0; i < num_base_layers; i++) {
-        snprintf(base_fpath, PATH_MAX, "%s%s", base_paths[i], path);
-        dp_base = opendir(base_fpath);
-        if (dp_base == NULL)
+        // create path for the current base layer
+        snprintf(fpath, PATH_MAX, "%s%s", base_paths[i], path);
+        dp = opendir(fpath);
+        if (dp == NULL)
             continue;
 
-        while ((de_base = readdir(dp_base)) != NULL) {
+        while ((de = readdir(dp)) != NULL) {
             // skip hidden files
-            if (de_base->d_name[0] == '.')
+            if (de->d_name[0] == '.')
+                continue;
+
+            // skip if already in linked list
+            if (is_in_list(filename_list, de->d_name))
                 continue;
 
             // .deleted marker path for deleted files in session layer
-            snprintf(marker_fpath, PATH_MAX, "%s/%s.deleted", session_fpath, de_base->d_name);
+            session_fullpath(marker_fpath, path);
+            snprintf(marker_fpath, PATH_MAX, "%s/%s.deleted", marker_fpath, de->d_name);
 
             // skip files that are marked .deleted
             if (access(marker_fpath, F_OK) == 0)
                 continue;
 
-            // create full path to check if the file exists in session layer
-            snprintf(session_file_path, PATH_MAX, "%s/%s", session_fpath, de_base->d_name);
+            // create full path to check if file exists in the session layer
+            char session_file_path[PATH_MAX];
+            session_fullpath(session_file_path, path);
+            snprintf(session_file_path, PATH_MAX, "%s/%s", session_file_path, de->d_name);
 
-            // skip files that already exist in the session layer
+            // skip files that already exist in session layer
             if (access(session_file_path, F_OK) == 0)
                 continue;
 
+            // add filename to linked list
+            add_to_list(&filename_list, de->d_name);
+
+            // fill directory entry
             struct stat st;
             memset(&st, 0, sizeof(st));
-            st.st_ino = de_base->d_ino;
-            st.st_mode = de_base->d_type << 12;
+            st.st_ino = de->d_ino;
+            st.st_mode = de->d_type << 12;
 
-            if (filler(buf, de_base->d_name, &st, 0))
+            if (filler(buf, de->d_name, &st, 0))
                 break;
         }
-        closedir(dp_base);
+        closedir(dp);
+    }
+
+cleanup:
+    // clean the filename list
+    current = filename_list;
+    while (current != NULL) {
+        next = current->next;
+        free(current->name);
+        free(current);
+        current = next;
     }
 
     return 0;
@@ -162,6 +312,14 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 // open operation function implementation
 static int myfs_open(const char *path, struct fuse_file_info *fi)
 {
+    printf("open called on path: %s\n", path);  // debug
+
+    // Handle opening /dev/cpu
+    if (strcmp(path, "/dev/cpu") == 0) {
+        // since /dev/cpu is a virtual file, no need to open file descriptor
+        return 0;
+    }
+
     int res;
     char fpath[PATH_MAX];
 
@@ -170,17 +328,45 @@ static int myfs_open(const char *path, struct fuse_file_info *fi)
     res = open(fpath, fi->flags);
     if (res != -1)
     {
-        close(res);
-        return 0;
+     close(res);
+     return 0;
     }
 
-    // if not in session layer, try inside base layer
-    base_fullpath_func(fpath, path);
-    res = open(fpath, fi->flags);
-    if (res == -1)
-        return -errno;
+    // check if there is .deleted marker in session layer
+    char deleted_marker[PATH_MAX];
+    snprintf(deleted_marker, PATH_MAX, "%s.deleted", fpath);
+    if (access(deleted_marker, F_OK) == 0) {
+     // file is marked/masked as deleted
+     return -ENOENT;
+    }
 
-    close(res);
+    // if not in session layer and not masked, try inside base layer
+    if (base_fullpath_func(fpath, path) == 0) {
+     res = open(fpath, fi->flags);
+     if (res == -1)
+         return -errno;
+     close(res);
+     return 0;
+    }
+
+return -ENOENT;
+}
+
+static int myfs_statfs(const char *path, struct statvfs *stbuf) {
+    printf("myfs_statfs called on path: %s\n", path);
+    fflush(stdout);
+
+    // fill statvfs structure
+    memset(stbuf, 0, sizeof(struct statvfs));
+    stbuf->f_bsize = 4096;
+    stbuf->f_frsize = 4096;
+    stbuf->f_blocks = 1024 * 1024;
+    stbuf->f_bfree = 1024 * 512;
+    stbuf->f_bavail = 1024 * 512;
+    stbuf->f_files = 1024 * 1024;
+    stbuf->f_ffree = 1024 * 512;
+    stbuf->f_namemax = 255;
+
     return 0;
 }
 
@@ -188,29 +374,92 @@ static int myfs_open(const char *path, struct fuse_file_info *fi)
 // read operation function implementation
 static int myfs_read(const char *path, char *buf, size_t size, off_t offset,
                      struct fuse_file_info *fi) {
+    printf("myfs_read called on path: %s\n", path);  // Debug statement
+    fflush(stdout);
+
+    // for reading from /dev/cpu
+    if (strcmp(path, "/dev/cpu") == 0) {
+        // generate CPU stats 
+        char cpu_info[1024];
+        int len;
+
+        // get CPU brand string
+        char cpu_brand[256];
+        size_t len_cpu_brand = sizeof(cpu_brand);
+
+        if (sysctlbyname("machdep.cpu.brand_string", cpu_brand, &len_cpu_brand, NULL, 0) == -1) {
+            perror("sysctlbyname");
+            return -EIO;
+        }
+
+        printf("Retrieved CPU brand: %s\n", cpu_brand);
+        fflush(stdout);
+
+        len = snprintf(cpu_info, sizeof(cpu_info), "CPU Brand: %s\n", cpu_brand);
+
+        // for offset
+        if (offset < len) {
+            if (offset + size > len)
+                size = len - offset;
+            memcpy(buf, cpu_info + offset, size);
+        } else {
+            size = 0;
+        }
+
+        printf("Returning size: %zu\n", size);
+        fflush(stdout);
+
+        return size;
+    }
+
     int fd;
     int res;
     char fpath[PATH_MAX];
 
-    // session layer first
+    // try to open file in session layer
     session_fullpath(fpath, path);
     fd = open(fpath, O_RDONLY);
-    if (fd != -1) goto read_file;
-
-    // iterate each base layer
-    for (int i = 0; i < num_base_layers; i++) {
-        if (base_fullpath_func(fpath, path) == 0) {
-            fd = open(fpath, O_RDONLY);
-            if (fd != -1) goto read_file;
-        }
+    if (fd != -1) {
+     // read from file
+     res = pread(fd, buf, size, offset);
+     if (res == -1)
+         res = -errno;
+     close(fd);
+     return res;
     }
 
-    return -ENOENT;
+    // check if there is .deleted marker in the session layer
+    char deleted_marker[PATH_MAX];
+    snprintf(deleted_marker, PATH_MAX, "%s.deleted", fpath);
+    if (access(deleted_marker, F_OK) == 0) {
+        // masked as deleted
+        return -ENOENT;
+    }
 
-read_file:
-    res = pread(fd, buf, size, offset);
-    close(fd);
-    return res;
+    // if not in session layer and not masked, try each base layer
+    for (int i = 0; i < num_base_layers; i++) {
+     // full path for current base layer
+     if (base_paths[i][strlen(base_paths[i]) - 1] == '/' && path[0] == '/')
+            snprintf(fpath, PATH_MAX, "%s%s", base_paths[i], path + 1);
+        else
+            snprintf(fpath, PATH_MAX, "%s%s", base_paths[i], path);
+
+            // check if file exists in current base layer
+            if (access(fpath, F_OK) == 0) {
+             fd = open(fpath, O_RDONLY);
+            if (fd != -1) {
+            // read from file
+             res = pread(fd, buf, size, offset);
+            if (res == -1)
+                res = -errno;
+            close(fd);
+            return res;
+        }
+    }
+}
+
+// file not found in any layer
+return -ENOENT;
 }
 
 // write operation function implementation
@@ -476,10 +725,12 @@ static struct fuse_operations myfs_oper = {
     .getattr  = myfs_getattr,
     .readdir  = myfs_readdir,
     .open     = myfs_open,
+    .access   = myfs_access, 
     .read     = myfs_read,
     .write    = myfs_write,
     .truncate = myfs_truncate,
     .create   = myfs_create,
+    .statfs   = myfs_statfs,
     .utimens  = myfs_utimens,
     .unlink   = myfs_unlink,
     .chmod    = myfs_chmod,
