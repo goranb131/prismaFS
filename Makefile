@@ -1,30 +1,30 @@
-# Compiler and flags
+# compiler and flags
 CC = /usr/bin/clang
 CFLAGS = -Wall -D_FILE_OFFSET_BITS=64 -I/usr/local/include
 LDFLAGS = /usr/local/lib/libosxfuse.2.dylib
 
-# Binary name
+# binary name
 TARGET = prismafs
 
-# Source file
+# source file
 SRC = prismafs.c
 
-# Install directories
+# install dirs
 INSTALL_DIR = /usr/local/bin
 MAN_DIR = /usr/local/share/man/man1
 
-# Man page name
+# man page name
 MANPAGE = prismafs.1
 
-# Default target: Build the binary
+# fefault target: Build the binary
 all: $(TARGET)
 
-# Rule to compile the binary
+# rule to compile the binary
 $(TARGET): $(SRC)
 	$(CC) $(CFLAGS) -o $(TARGET) $(SRC) $(LDFLAGS)
 	@echo "Build complete: $(TARGET)"
 
-# Install the binary and man page to the system path
+# install the binary and man page to the system path
 install: $(TARGET) $(MANPAGE)
 	@echo "Installing $(TARGET) to $(INSTALL_DIR)..."
 	@mkdir -p $(INSTALL_DIR)
@@ -35,7 +35,7 @@ install: $(TARGET) $(MANPAGE)
 	@cp $(MANPAGE) $(MAN_DIR)/
 	@echo "Installation complete."
 
-# Uninstall the binary and man page
+# uninstall the binary and man page
 uninstall:
 	@echo "Removing $(TARGET) from $(INSTALL_DIR)..."
 	@rm -f $(INSTALL_DIR)/$(TARGET)
@@ -43,12 +43,12 @@ uninstall:
 	@rm -f $(MAN_DIR)/$(MANPAGE)
 	@echo "Uninstallation complete."
 
-# Clean up build artifacts
+# clean up build artifacts
 clean:
 	rm -f $(TARGET)
 	@echo "Cleaned up build files."
 
-# Run the binary for testing
+# run binary for testing
 run: all
 	@echo "Running $(TARGET)..."
 	@./$(TARGET) --help
