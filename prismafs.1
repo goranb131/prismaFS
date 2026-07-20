@@ -1,21 +1,28 @@
-.TH PRISMAFS 1 "July 2026" "PrismaFS 1.0.3" "User Commands"
+.TH PRISMAFS 1 "July 2026" "PrismaFS 1.1.0" "User Commands"
 .SH NAME
-prismafs \- lightweight, layered filesystem inspired by Plan 9
+prismafs \- lightweight, layered filesystem 
 .SH SYNOPSIS
 .B prismafs
-[\-v | \-h] <mountpoint>
+[\-c \fIconfig\fR] [\-v | \-h] <mountpoint>
 .SH DESCRIPTION
 .B PrismaFS
-is a lightweight, layered filesystem inspired by Plan 9. It allows users to overlay base filesystems with session-specific layers for experimentation, isolation, and flexibility.
+is a lightweight, layered filesystem. It allows users to overlay base filesystems with session-specific layers for experimentation, isolation, and flexibility.
 
 This utility mounts PrismaFS at the specified
 .I mountpoint
-, using directories defined by the environment variables
+, using directories defined either by a config file (recommended) or by the environment variables
 .I SESSION_LAYER_DIR
 and
 .I BASE_LAYER_DIRS.
 
 .SH OPTIONS
+.TP
+.B \-c \fIconfig\fR
+Load layer configuration from
+.I config
+instead of environment variables. See
+.B CONFIG FILE
+below.
 .TP
 .B \-v
 Displays the current version of PrismaFS and exits.
@@ -23,7 +30,31 @@ Displays the current version of PrismaFS and exits.
 .B \-h
 Displays this help message and exits.
 
+.SH CONFIG FILE
+A plain-text file with one directive per line. Lines beginning with
+.B #
+are comments. Empty lines are ignored.
+.TP
+.B session \fI<path>\fR
+Directory used for session-specific writes (required once).
+.TP
+.B base \fI<path>\fR
+A base layer directory (required at least once). Multiple
+.B base
+lines are listed in priority order.
+
+Example config file:
+.nf
+    # my analysis environment
+    session /tmp/session
+    base /opt/project-base
+    base /usr/local/share/common
+.fi
+
 .SH ENVIRONMENT VARIABLES
+Used when no
+.B \-c
+flag provided (fallback).
 .TP
 .B SESSION_LAYER_DIR
 Defines the directory used for session-specific layers.
@@ -32,14 +63,19 @@ Defines the directory used for session-specific layers.
 Comma-separated list of base directories to use as layers.
 
 .SH EXAMPLES
-Mount PrismaFS with a session layer and one base layer:
+Mount using config file:
+.nf
+    prismafs -c ~/.config/prismafs/dev.conf /tmp/prismafs_mount
+.fi
+
+Mount with environment variables:
 .nf
     export SESSION_LAYER_DIR=/tmp/session
     export BASE_LAYER_DIRS=/tmp/base1
     prismafs /tmp/prismafs_mount
 .fi
 
-Mount PrismaFS with multiple base layers:
+Mount with multiple base layers via environment:
 .nf
     export SESSION_LAYER_DIR=/tmp/session
     export BASE_LAYER_DIRS="/tmp/base1,/tmp/base2"
