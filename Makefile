@@ -31,7 +31,7 @@ all: $(TARGET)
 
 # rule to compile the binary
 $(TARGET): $(SRC)
-$(CC) $(CFLAGS) $(FUSE_CFLAGS) -o $(TARGET) $(SRC) $(FUSE_LIBS)
+	$(CC) $(CFLAGS) $(FUSE_CFLAGS) -o $(TARGET) $(SRC) $(FUSE_LIBS)
 	@echo "Build complete: $(TARGET)"
 
 # install the binary and man page to the system path
@@ -60,4 +60,4 @@ clean:
 # run binary for testing
 run: all
 	@echo "Running $(TARGET)..."
-    @./$(TARGET) -v
+	@./$(TARGET) -v

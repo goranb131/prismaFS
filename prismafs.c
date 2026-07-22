@@ -257,6 +257,13 @@ static void add_to_list(struct filename_node **filename_list_ptr, const char *na
     *filename_list_ptr = new_node;
 }
 
+// filler takes 5 args on FUSE3 (Linux), 4 args on FUSE2 (macOS)
+#if FUSE_USE_VERSION >= 30
+#define FUSE_FILL(buf, name, st, off) filler(buf, name, st, off, 0)
+#else
+#define FUSE_FILL(buf, name, st, off) filler(buf, name, st, off)
+#endif
+
 // readdir operation function implementation
 #if FUSE_USE_VERSION >= 30
 static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
@@ -285,8 +292,8 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     if (strcmp(path, "/") == 0) {
         // add standard entries
         // every directory listing must include "." and ".."
-        filler(buf, ".", NULL, 0, 0);
-        filler(buf, "..", NULL, 0, 0);
+        FUSE_FILL(buf, ".", NULL, 0);
+        FUSE_FILL(buf, "..", NULL, 0);
 
 
         // include "dev" directory
@@ -296,14 +303,14 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
             memset(&st, 0, sizeof(st)); // zero out stat struct 
             st.st_mode = S_IFDIR | 0755; // mark as dir with rwxr-xr-x permissions
             
-            if (filler(buf, "dev", &st, 0, 0))
+            if (FUSE_FILL(buf, "dev", &st, 0))
                 goto cleanup;
             add_to_list(&filename_list, "dev");
         }
     } else if (strcmp(path, "/dev") == 0) {
         // add std entries
-        filler(buf, ".", NULL, 0, 0);
-        filler(buf, "..", NULL, 0, 0);
+        FUSE_FILL(buf, ".", NULL, 0);
+        FUSE_FILL(buf, "..", NULL, 0);
 
 
         // "cpu" file
@@ -313,7 +320,7 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
             memset(&st, 0, sizeof(st));
             st.st_mode = S_IFREG | 0444;  // regular file, read-only permissions
 
-            if (filler(buf, "cpu", &st, 0, 0))
+            if (FUSE_FILL(buf, "cpu", &st, 0))
                 goto cleanup;
             add_to_list(&filename_list, "cpu");
         }
@@ -344,7 +351,7 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
             st.st_ino = de->d_ino;
             st.st_mode = de->d_type << 12;
 
-            if (filler(buf, de->d_name, &st, 0, 0))
+            if (FUSE_FILL(buf, de->d_name, &st, 0))
                 break;
         }
 
@@ -393,7 +400,7 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
             st.st_ino = de->d_ino;
             st.st_mode = de->d_type << 12;
 
-            if (filler(buf, de->d_name, &st, 0, 0))
+            if (FUSE_FILL(buf, de->d_name, &st, 0))
                 break;
         }
         closedir(dp);
