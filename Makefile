@@ -1,7 +1,15 @@
 # compiler and flags
-CC = /usr/bin/clang
-CFLAGS = -Wall -D_FILE_OFFSET_BITS=64 -I/usr/local/include
-LDFLAGS = /usr/local/lib/libosxfuse.2.dylib
+CC ?= cc
+CFLAGS = -Wall -D_FILE_OFFSET_BITS=64
+
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
+FUSE_CFLAGS := -I/usr/local/include
+FUSE_LIBS := /usr/local/lib/libosxfuse.2.dylib
+else
+FUSE_CFLAGS := $(shell pkg-config --cflags fuse3 2>/dev/null)
+FUSE_LIBS := $(shell pkg-config --libs fuse3 2>/dev/null)
+endif
 
 # binary name
 TARGET = prismafs
@@ -10,8 +18,10 @@ TARGET = prismafs
 SRC = prismafs.c
 
 # install dirs
-INSTALL_DIR = /usr/local/bin
-MAN_DIR = /usr/local/share/man/man1
+PREFIX ?= /usr/local
+BINDIR ?= $(PREFIX)/bin
+MANDIR ?= $(PREFIX)/share/man/man1
+
 
 # man page name
 MANPAGE = prismafs.1
@@ -21,26 +31,25 @@ all: $(TARGET)
 
 # rule to compile the binary
 $(TARGET): $(SRC)
-	$(CC) $(CFLAGS) -o $(TARGET) $(SRC) $(LDFLAGS)
+	$(CC) $(CFLAGS) $(FUSE_CFLAGS) -o $(TARGET) $(SRC) $(FUSE_LIBS)
 	@echo "Build complete: $(TARGET)"
 
 # install the binary and man page to the system path
 install: $(TARGET) $(MANPAGE)
-	@echo "Installing $(TARGET) to $(INSTALL_DIR)..."
-	@mkdir -p $(INSTALL_DIR)
-	@cp $(TARGET) $(INSTALL_DIR)/
-	@chmod +x $(INSTALL_DIR)/$(TARGET)
-	@echo "Installing $(MANPAGE) to $(MAN_DIR)..."
-	@mkdir -p $(MAN_DIR)
-	@cp $(MANPAGE) $(MAN_DIR)/
+	@echo "Installing $(TARGET) to $(BINDIR)..."
+	@mkdir -p $(BINDIR)
+	@install -m 755 $(TARGET) $(BINDIR)/$(TARGET)
+	@echo "Installing $(MANPAGE) to $(MANDIR)..."
+	@mkdir -p $(MANDIR)
+	@install -m 644 $(MANPAGE) $(MANDIR)/$(MANPAGE)
 	@echo "Installation complete."
 
 # uninstall the binary and man page
 uninstall:
-	@echo "Removing $(TARGET) from $(INSTALL_DIR)..."
-	@rm -f $(INSTALL_DIR)/$(TARGET)
-	@echo "Removing $(MANPAGE) from $(MAN_DIR)..."
-	@rm -f $(MAN_DIR)/$(MANPAGE)
+	@echo "Removing $(TARGET) from $(BINDIR)..."
+	@rm -f $(BINDIR)/$(TARGET)
+	@echo "Removing $(MANPAGE) from $(MANDIR)..."
+	@rm -f $(MANDIR)/$(MANPAGE)
 	@echo "Uninstallation complete."
 
 # clean up build artifacts
@@ -51,4 +60,4 @@ clean:
 # run binary for testing
 run: all
 	@echo "Running $(TARGET)..."
-	@./$(TARGET) --help
+	@./$(TARGET) -v

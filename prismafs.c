@@ -1,6 +1,6 @@
 /*
- * PrismaFS: A lightweight, layered filesystem inspired by Plan 9.
- * Version: 1.0.3
+ * PrismaFS: A lightweight, layered filesystem.
+ * Version: 1.2.0
  * Copyright 2026 Goran Bunić 
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,8 +16,14 @@
  * limitations under the License.
  */
 
+
+
+#if defined(__linux__)
+#define FUSE_USE_VERSION 30
+#else
 #define FUSE_USE_VERSION 29
-#define PRISMAFS_VERSION "1.1.0"
+#endif
+#define PRISMAFS_VERSION "1.2.0"
 #define MAX_BASE_LAYERS 10
 
 
@@ -32,7 +38,10 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <stdlib.h>
-#include <sys/sysctl.h> // for sysctl
+#ifdef __APPLE__
+#include <sys/sysctl.h> // For sysctl
+#endif
+#include <sys/utsname.h>
 #include <stdint.h>     // for int64_t
 
 static const char *base_path_initial = "/"; // initial base layer path
@@ -81,8 +90,13 @@ static int base_fullpath_func(char fpath[PATH_MAX], const char *path) {
 // FUSE operation implementations:
 
 // getattr operation function implementation
+#if FUSE_USE_VERSION >= 30
+static int myfs_getattr(const char *path, struct stat *stbuf, struct fuse_file_info *fi) {
+    (void) fi;
+#else
 static int myfs_getattr(const char *path, struct stat *stbuf) {
-   
+#endif
+ 
     memset(stbuf, 0, sizeof(struct stat));
 
     // handle special /dev directory and /dev/cpu file
@@ -243,9 +257,24 @@ static void add_to_list(struct filename_node **filename_list_ptr, const char *na
     *filename_list_ptr = new_node;
 }
 
+// filler takes 5 args on FUSE3 (Linux), 4 args on FUSE2 (macOS)
+#if FUSE_USE_VERSION >= 30
+#define FUSE_FILL(buf, name, st, off) filler(buf, name, st, off, 0)
+#else
+#define FUSE_FILL(buf, name, st, off) filler(buf, name, st, off)
+#endif
+
 // readdir operation function implementation
+#if FUSE_USE_VERSION >= 30
+static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
+                        off_t offset, struct fuse_file_info *fi,
+                        enum fuse_readdir_flags flags) {
+    (void) flags;
+#else
 static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
                         off_t offset, struct fuse_file_info *fi) {
+#endif
+
     (void) offset;
     (void) fi;
 
@@ -263,29 +292,35 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     if (strcmp(path, "/") == 0) {
         // add standard entries
         // every directory listing must include "." and ".."
-        filler(buf, ".", NULL, 0);
-        filler(buf, "..", NULL, 0);
+        FUSE_FILL(buf, ".", NULL, 0);
+        FUSE_FILL(buf, "..", NULL, 0);
+
 
         // include "dev" directory
         if (!is_in_list(filename_list, "dev")) {
+
             struct stat st;
             memset(&st, 0, sizeof(st)); // zero out stat struct 
             st.st_mode = S_IFDIR | 0755; // mark as dir with rwxr-xr-x permissions
-            if (filler(buf, "dev", &st, 0))
+            
+            if (FUSE_FILL(buf, "dev", &st, 0))
                 goto cleanup;
             add_to_list(&filename_list, "dev");
         }
     } else if (strcmp(path, "/dev") == 0) {
         // add std entries
-        filler(buf, ".", NULL, 0);
-        filler(buf, "..", NULL, 0);
+        FUSE_FILL(buf, ".", NULL, 0);
+        FUSE_FILL(buf, "..", NULL, 0);
+
 
         // "cpu" file
         if (!is_in_list(filename_list, "cpu")) {
+            
             struct stat st;
             memset(&st, 0, sizeof(st));
             st.st_mode = S_IFREG | 0444;  // regular file, read-only permissions
-            if (filler(buf, "cpu", &st, 0))
+
+            if (FUSE_FILL(buf, "cpu", &st, 0))
                 goto cleanup;
             add_to_list(&filename_list, "cpu");
         }
@@ -316,7 +351,7 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
             st.st_ino = de->d_ino;
             st.st_mode = de->d_type << 12;
 
-            if (filler(buf, de -> d_name, &st, 0))
+            if (FUSE_FILL(buf, de->d_name, &st, 0))
                 break;
         }
 
@@ -365,7 +400,7 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
             st.st_ino = de->d_ino;
             st.st_mode = de->d_type << 12;
 
-            if (filler(buf, de->d_name, &st, 0))
+            if (FUSE_FILL(buf, de->d_name, &st, 0))
                 break;
         }
         closedir(dp);
@@ -461,12 +496,26 @@ static int myfs_read(const char *path, char *buf, size_t size, off_t offset,
 
         // get CPU brand string
         char cpu_brand[256];
+        #ifdef __APPLE__
         size_t len_cpu_brand = sizeof(cpu_brand);
 
         if (sysctlbyname("machdep.cpu.brand_string", cpu_brand, &len_cpu_brand, NULL, 0) == -1) {
             perror("sysctlbyname");
             return -EIO;
         }
+
+        #else
+        
+        struct utsname uts;
+        if (uname(&uts) == -1) {
+            perror("uname");
+            return -EIO;
+        }
+        
+        snprintf(cpu_brand, sizeof(cpu_brand), "%s", uts.machine);
+        
+        #endif
+
 
         len = snprintf(cpu_info, sizeof(cpu_info), "CPU Brand: %s\n", cpu_brand);
 
@@ -602,8 +651,15 @@ static int myfs_write(const char *path, const char *buf, size_t size,
 }
 
 // truncate operation func implementation
+#if FUSE_USE_VERSION >= 30
+static int myfs_truncate(const char *path, off_t size, struct fuse_file_info *fi)
+{
+    (void) fi;
+#else
 static int myfs_truncate(const char *path, off_t size)
 {
+#endif
+
     char fpath[PATH_MAX];
 
     // truncate happens in session layer
@@ -767,8 +823,15 @@ static int myfs_rmdir(const char *path) {
 }
 
 // chmod operation func implementation
+#if FUSE_USE_VERSION >= 30
+static int myfs_chmod(const char *path, mode_t mode, struct fuse_file_info *fi)
+{
+    (void) fi;
+#else
 static int myfs_chmod(const char *path, mode_t mode)
 {
+#endif
+
     char fpath[PATH_MAX];
     char base_fpath[PATH_MAX];
 
@@ -856,8 +919,15 @@ static int myfs_unlink(const char *path)
 }
 
 // utimensat operation func implementation (POSIX)
+#if FUSE_USE_VERSION >= 30
+static int myfs_utimens(const char *path, const struct timespec ts[2], struct fuse_file_info *fi)
+{
+    (void) fi;
+#else
 static int myfs_utimens(const char *path, const struct timespec ts[2])
 {
+#endif
+
     char fpath[PATH_MAX];
 
     // update session layer times
