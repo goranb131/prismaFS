@@ -1,6 +1,6 @@
 /*
  * PrismaFS: A lightweight, layered filesystem.
- * Version: 1.2.0
+ * Version: 1.2.1
  * Copyright 2026 Goran Bunić 
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,7 +23,7 @@
 #else
 #define FUSE_USE_VERSION 29
 #endif
-#define PRISMAFS_VERSION "1.2.0"
+#define PRISMAFS_VERSION "1.2.1"
 #define MAX_BASE_LAYERS 10
 
 
@@ -107,10 +107,21 @@ static int myfs_getattr(const char *path, struct stat *stbuf) {
         } else if (strcmp(path, "/dev/cpu") == 0) {
 
     char cpu_brand[256];
+    #ifdef __APPLE__
     size_t len_cpu_brand = sizeof(cpu_brand);
 
     if (sysctlbyname("machdep.cpu.brand_string", cpu_brand, &len_cpu_brand, NULL, 0) == -1)
         strncpy(cpu_brand, "Unknown CPU", sizeof(cpu_brand) - 1);
+
+    #else
+    
+    struct utsname uts;
+    if (uname(&uts) == 0)
+        snprintf(cpu_brand, sizeof(cpu_brand), "%s", uts.machine);
+    else
+        strncpy(cpu_brand, "Unknown CPU", sizeof(cpu_brand) - 1);
+    
+    #endif
 
     size_t content_length = strlen("CPU Brand: ") + strlen(cpu_brand) + 1;
 
@@ -941,8 +952,15 @@ static int myfs_utimens(const char *path, const struct timespec ts[2])
 }
 
 // rename operation func implementation
+#if FUSE_USE_VERSION >= 30
+static int myfs_rename(const char *from, const char *to, unsigned int flags)
+{
+    (void) flags;
+#else
 static int myfs_rename(const char *from, const char *to)
 {
+#endif
+
     char session_from[PATH_MAX], session_to[PATH_MAX];
     char base_from[PATH_MAX];
 
