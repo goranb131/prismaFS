@@ -1,6 +1,6 @@
 # compiler and flags
 CC ?= cc
-CFLAGS = -Wall -D_FILE_OFFSET_BITS=64
+CFLAGS = -Wall -D_FILE_OFFSET_BITS=64 -Isrc
 
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
@@ -14,8 +14,8 @@ endif
 # binary name
 TARGET = prismafs
 
-# source file
-SRC = prismafs.c
+# source files
+SRC = $(wildcard src/*.c)
 
 # install dirs
 PREFIX ?= /usr/local
@@ -24,9 +24,9 @@ MANDIR ?= $(PREFIX)/share/man/man1
 
 
 # man page name
-MANPAGE = prismafs.1
+MANPAGE = man/prismafs.1
 
-# fefault target: Build the binary
+# default target: Build the binary
 all: $(TARGET)
 
 # rule to compile the binary
