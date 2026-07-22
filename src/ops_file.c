@@ -29,14 +29,12 @@ int myfs_open(const char *path, struct fuse_file_info *fi)
         return -ENOENT;
     }
 
-    // if not in session layer and not masked, try in base layer
-    if (base_fullpath_func(fpath, path) == 0) {
-        res = open(fpath, fi->flags);
-        if (res == -1)
-            return -errno;
-        close(res);
+    /* file is in base layer — writes will CoW into session via myfs_write/truncate.
+     * do NOT open with fi->flags here: flags may contain O_WRONLY|O_TRUNC which
+     * would truncate the base file directly. Just confirm existence and return. */
+    if (base_fullpath_func(fpath, path) == 0)
         return 0;
-    }
+    
 
     return -ENOENT;
 }

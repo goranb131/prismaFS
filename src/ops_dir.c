@@ -106,8 +106,9 @@ int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
                 continue;
 
             // .deleted marker path for deleted files (in session)
-            session_fullpath(marker_fpath, path);
-            snprintf(marker_fpath, PATH_MAX, "%s/%s.deleted", marker_fpath, de->d_name);
+            char session_dir[PATH_MAX];
+            session_fullpath(session_dir, path);
+            snprintf(marker_fpath, PATH_MAX, "%s/%s.deleted", session_dir, de->d_name);
 
             // skip files marked .deleted
             if (access(marker_fpath, F_OK) == 0)
