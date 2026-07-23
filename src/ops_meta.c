@@ -305,3 +305,73 @@ int myfs_rename(const char *from, const char *to)
 
     return 0;
 }
+
+// symlink operation func implementation for creating symlink
+// symlinks go to session layer never modifying base
+int myfs_symlink(const char *target, const char *linkpath)
+{
+    char session_fpath[PATH_MAX];
+    session_fullpath(session_fpath, linkpath);
+    /*translates virtual path into real path on disk inside session dir. 
+      so for example /mylink becomes /path/to/session/mylink.*/
+
+
+    // create parent dirs in session (if applicable):
+
+    /*strrchr finds last / in full session path, everything before is parent dir. 
+    for example: if session_fpath is /session/subdir/mylink then dir_end points to /mylink part, so dir_path is /session/subdir. 
+    mkdir creates it. */
+    char *dir_end = strrchr(session_fpath, '/');
+
+    // dir_end != session_fpath avoids creating root itself /
+    if (dir_end && dir_end != session_fpath) { 
+        char dir_path[PATH_MAX];
+        strncpy(dir_path, session_fpath, dir_end - session_fpath);
+        dir_path[dir_end - session_fpath] = '\0';
+        mkdir(dir_path, 0755);
+    }
+
+    if (symlink(target, session_fpath) == -1)
+        return -errno;
+    return 0;
+}
+
+// readlink operation func implementation
+// reading symlink target. checks session and .deleted markers, then falls back to base layers
+int myfs_readlink(const char *path, char *buf, size_t size)
+{
+    char fpath[PATH_MAX];
+
+    // check session layer
+    session_fullpath(fpath, path);
+
+    // is there a .deleted marker?
+    char deleted_marker[PATH_MAX];
+    snprintf(deleted_marker, PATH_MAX, "%s.deleted", fpath);
+    if (access(deleted_marker, F_OK) == 0)
+        return -ENOENT;
+
+    /*call readlink on session path. readlink syscall reads what symlink points to 
+    and if file exists there then returns number of bytes written, 
+    so res != -1 means success. 
+    */
+    // readlink does not follow the link, reads its target
+    ssize_t res = readlink(fpath, buf, size - 1);
+    if (res != -1) {
+        buf[res] = '\0'; // readlink doesnt null terminate, must do it manually
+        return 0;
+    }
+    if (errno != ENOENT)
+        return -errno;
+
+    // base layers
+    if (base_fullpath_func(fpath, path) == 0) {
+        res = readlink(fpath, buf, size - 1);
+        if (res == -1)
+            return -errno;
+        buf[res] = '\0';
+        return 0;
+    }
+
+    return -ENOENT;
+}
