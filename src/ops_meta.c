@@ -306,7 +306,77 @@ int myfs_rename(const char *from, const char *to)
     return 0;
 }
 
-// symlink operation func implementation for creating symlink
+// chown operation func implementation
+// lchown used so symlinks are handled directly
+#if FUSE_USE_VERSION >= 30
+int myfs_chown(const char *path, uid_t uid, gid_t gid, struct fuse_file_info *fi)
+{
+    (void) fi;
+#else
+int myfs_chown(const char *path, uid_t uid, gid_t gid)
+{
+#endif
+    char fpath[PATH_MAX];
+    char base_fpath[PATH_MAX];
+
+    session_fullpath(fpath, path);
+
+    /* chown must not touch the base layer directly.
+       if the file only lives in base, CoW it into session first,
+       then apply ownership change to the session copy */
+    struct stat st;
+    if (lstat(fpath, &st) == -1) {
+        if (errno != ENOENT)
+            return -errno;
+
+        // not in session — look in base layers
+        if (base_fullpath_func(base_fpath, path) == -1)
+            return -ENOENT;
+
+        // ensure parent directory exists in session layer
+        char *dir_end = strrchr(fpath, '/');
+        if (dir_end && dir_end != fpath) {
+            char dir_path[PATH_MAX];
+            strncpy(dir_path, fpath, dir_end - fpath);
+            dir_path[dir_end - fpath] = '\0';
+            mkdir(dir_path, 0755);
+        }
+
+        if (lstat(base_fpath, &st) == -1)
+            return -errno;
+
+        if (S_ISLNK(st.st_mode)) {
+            // symlink CoW: read target then recreate in session
+            char link_target[PATH_MAX];
+            ssize_t len = readlink(base_fpath, link_target, sizeof(link_target) - 1);
+            if (len == -1) return -errno;
+            link_target[len] = '\0';
+            if (symlink(link_target, fpath) == -1 && errno != EEXIST)
+                return -errno;
+        } else if (S_ISDIR(st.st_mode)) {
+            if (mkdir(fpath, st.st_mode & 0777) == -1 && errno != EEXIST)
+                return -errno;
+        } else {
+            // regular file CoW
+            int src = open(base_fpath, O_RDONLY);
+            int dst = open(fpath, O_WRONLY | O_CREAT, 0644);
+            if (src != -1 && dst != -1) {
+                char buf[8192];
+                ssize_t n;
+                while ((n = read(src, buf, sizeof(buf))) > 0)
+                    write(dst, buf, n);
+            }
+            if (src != -1) close(src);
+            if (dst != -1) close(dst);
+        }
+    }
+
+    // apply ownership change to session copy
+    // lchown doesn't go through symlinks. change symlink itself if one
+    if (lchown(fpath, uid, gid) == -1)
+        return -errno;
+    return 0;
+}
 // symlinks go to session layer never modifying base
 int myfs_symlink(const char *target, const char *linkpath)
 {
