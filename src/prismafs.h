@@ -101,5 +101,7 @@ int myfs_create(const char *path, mode_t mode, struct fuse_file_info *fi);
 int myfs_mkdir(const char *path, mode_t mode);
 int myfs_rmdir(const char *path);
 int myfs_unlink(const char *path);
+int myfs_symlink(const char *target, const char *linkpath);
+int myfs_readlink(const char *path, char *buf, size_t size);
 
 #endif /* PRISMAFS_H */

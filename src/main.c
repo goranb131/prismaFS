@@ -90,7 +90,9 @@ static struct fuse_operations myfs_oper = {
     .chmod    = myfs_chmod,
     .mkdir    = myfs_mkdir,
     .rmdir    = myfs_rmdir,
-    .rename   = myfs_rename
+    .rename   = myfs_rename,
+    .symlink  = myfs_symlink,
+    .readlink = myfs_readlink
     // extend operations here
 };
 
