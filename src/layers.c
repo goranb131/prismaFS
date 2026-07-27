@@ -78,3 +78,62 @@ void add_to_list(struct filename_node **filename_list_ptr, const char *name) {
     new_node->next = *filename_list_ptr;
     *filename_list_ptr = new_node;
 }
+
+
+/* 
+-------------------------------------------------
+FIX: If we consider case where disk is almost full, and if we would
+try to write or chmod large file that exists in base layer then CoW copy would fail but silently. 
+it would appear to succeed without error but it would be corrupted.
+
+nw != nr catches incomplete writes and errors and unlink() any corruption left in session
+-------------------------------------------------
+
+- copies file from src to destination (dst) with given mode.
+- check write() return on each chunk, if failure ,remove partial dest
+- so no corrupt half-written file is left in the session layer.
+- 0 = success, -errno = failure. */
+int cow_file(const char *src, const char *dst, mode_t mode)
+{
+    // opening source file for reading 
+    int src_fd = open(src, O_RDONLY);
+
+    if (src_fd == -1)
+        return -errno;
+
+    // open dest file for writing
+    // O_CREAT = create if doesnt exist, O_TRUNC = if exists, wipe
+    // "mode" is file permissions 
+    int dst_fd = open(dst, O_WRONLY | O_CREAT | O_TRUNC, mode);
+
+    if (dst_fd == -1) {
+        int err = errno;
+        close(src_fd);
+        return -err;
+    }
+
+    char buf[8192]; // chunked 8kb buffer
+    ssize_t nr, nw; // bytes read and bytes written
+    int ret = 0; // ret != 0 for error
+
+    // read...
+    while ((nr = read(src_fd, buf, sizeof(buf))) > 0) {
+        nw = write(dst_fd, buf, (size_t)nr);
+        if (nw != nr) {
+           // if write returned less bytes than expected theres disk issue
+           // so should break with error 
+            ret = -EIO;
+            break;
+        }
+    }
+    if (nr == -1)
+        ret = -errno; // read fail
+
+    close(src_fd);
+    close(dst_fd);
+
+    if (ret != 0)
+        unlink(dst); // design decision = delete incomplete or corrupt content
+
+    return ret;
+}

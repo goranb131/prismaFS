@@ -154,16 +154,8 @@ int myfs_chmod(const char *path, mode_t mode)
             if (mkdir(fpath, st.st_mode & 0777) == -1 && errno != EEXIST)
                 return -errno;
         } else {
-            int src = open(base_fpath, O_RDONLY);
-            int dst = open(fpath, O_WRONLY | O_CREAT, 0644);
-            if (src != -1 && dst != -1) {
-                char buf[8192];
-                ssize_t n;
-                while ((n = read(src, buf, sizeof(buf))) > 0)
-                    write(dst, buf, n);
-            }
-            if (src != -1) close(src);
-            if (dst != -1) close(dst);
+            int cow_ret = cow_file(base_fpath, fpath, 0644);
+            if (cow_ret != 0) return cow_ret;
         }
     }
 
@@ -285,16 +277,10 @@ int myfs_rename(const char *from, const char *to)
         if (mkdir(session_to, st.st_mode & 0777) == -1 && errno != EEXIST)
             return -errno;
     } else {
-        int src = open(base_from, O_RDONLY);
-        if (src == -1) return -errno;
-        int dst = open(session_to, O_WRONLY | O_CREAT | O_TRUNC, st.st_mode & 0666);
-        if (dst == -1) { close(src); return -errno; }
-        char buf[8192];
-        ssize_t n;
-        while ((n = read(src, buf, sizeof(buf))) > 0)
-            write(dst, buf, n);
-        close(src);
-        close(dst);
+        // copy (CoW) source from BASE to new session path
+        // keep original mode. old path gets .deleted marker 
+        int cow_ret = cow_file(base_from, session_to, st.st_mode & 0666);
+        if (cow_ret != 0) return cow_ret;
     }
 
     // mask the original path in session layer
@@ -357,17 +343,10 @@ int myfs_chown(const char *path, uid_t uid, gid_t gid)
             if (mkdir(fpath, st.st_mode & 0777) == -1 && errno != EEXIST)
                 return -errno;
         } else {
-            // regular file CoW
-            int src = open(base_fpath, O_RDONLY);
-            int dst = open(fpath, O_WRONLY | O_CREAT, 0644);
-            if (src != -1 && dst != -1) {
-                char buf[8192];
-                ssize_t n;
-                while ((n = read(src, buf, sizeof(buf))) > 0)
-                    write(dst, buf, n);
-            }
-            if (src != -1) close(src);
-            if (dst != -1) close(dst);
+            // CoW copy file to session before chown
+            // after that, lchown on session copy.
+            int cow_ret = cow_file(base_fpath, fpath, 0644);
+            if (cow_ret != 0) return cow_ret;
         }
     }
 
