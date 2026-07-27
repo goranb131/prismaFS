@@ -45,33 +45,48 @@
 #include <sys/utsname.h>
 #include <stdint.h>
 
-// filler takes 5 args on FUSE3 (Linux), 4 args on FUSE2 (macOS)
+// 5 args = FUSE3 (Linux)
+// 4 args = FUSE2 (macOS)
 #if FUSE_USE_VERSION >= 30
 #define FUSE_FILL(buf, name, st, off) filler(buf, name, st, off, 0)
 #else
 #define FUSE_FILL(buf, name, st, off) filler(buf, name, st, off)
 #endif
 
-// global layer state (defined in layers.c)
+/* -------------------------------------------------------------
+   GLOBAL LAYER STATE (definitions in layers.c)
+   -------------------------------------------------------------
+*/
 extern char base_paths[MAX_BASE_LAYERS][PATH_MAX];
 extern int  num_base_layers;
 extern char session_path[PATH_MAX];
 
-// linked list node for tracking seen directory entries in readdir
+/* -------------------
+ readdir reads entries from session layer, every base layer. 
+  Same filename might appear in more layers, normally base and session(s).
+  Need to track what is already added in linked list and FUSE, 
+  so it doesnt get duplicates listed. 
+  Linked list to track:
+  -------------------*/
 struct filename_node {
     char *name;
     struct filename_node *next;
 };
 
-// --- layer helpers (layers.c) ---
+/* -------------------------------------------------------------
+   LAYER HELPERS (layers.c) 
+   -------------------------------------------------------------
+*/
 void session_fullpath(char fpath[PATH_MAX], const char *path);
 int  base_fullpath_func(char fpath[PATH_MAX], const char *path);
 int  is_in_list(struct filename_node *list, const char *name);
 void add_to_list(struct filename_node **list_ptr, const char *name);
 int  cow_file(const char *src, const char *dst, mode_t mode);
 
-// --- FUSE operation prototypes ---
-// signatures differ between FUSE2 (macOS) and FUSE3 (Linux)
+/* -------------------------------------------------------------
+   FUSE operation signatures (differences FUSE2(macOS) vs FUSE3(Linux)
+   -------------------------------------------------------------
+*/
 #if FUSE_USE_VERSION >= 30
 int myfs_getattr(const char *path, struct stat *stbuf, struct fuse_file_info *fi);
 int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
