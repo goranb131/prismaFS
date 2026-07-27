@@ -13,7 +13,7 @@ int myfs_open(const char *path, struct fuse_file_info *fi)
 
     // try to open file in session layer
     session_fullpath(fpath, path);
-    res = open(fpath, fi->flags);
+    res = open(fpath, fi -> flags);
 
     if (res != -1) {
         close(res);
@@ -182,22 +182,11 @@ int myfs_write(const char *path, const char *buf, size_t size,
             mkdir(dir_path, 0755);
         }
 
-        // copy file from base layer
-        int source_fd = open(base_fpath, O_RDONLY);
-        int dest_fd = open(fpath, O_WRONLY | O_CREAT, 0644);
-
-        if (source_fd != -1 && dest_fd != -1)
-        {
-            char buffer[8192];
-            ssize_t bytes;
-            while ((bytes = read(source_fd, buffer, sizeof(buffer))) > 0)
-            {
-                write(dest_fd, buffer, bytes);
-            }
-        }
-
-        if (source_fd != -1) close(source_fd);
-        if (dest_fd   != -1) close(dest_fd);
+        // copy file from base layer into session (CoW)
+        /* now cow_file() does copying checking writes and removes any incomplete dest content on fail 
+            session copy permissions 0644 = rw-r--r-- */
+        if (cow_file(base_fpath, fpath, 0644) != 0)
+            return -EIO;
     }
 
     // open file in session layer for writing
@@ -243,22 +232,11 @@ int myfs_truncate(const char *path, off_t size)
             mkdir(dir_path, 0755);
         }
 
-        // copy file from base layer
-        int source_fd = open(base_fpath, O_RDONLY);
-        int dest_fd = open(fpath, O_WRONLY | O_CREAT, 0644);
-
-        if (source_fd != -1 && dest_fd != -1)
-        {
-            char buffer[8192];
-            ssize_t bytes;
-            while ((bytes = read(source_fd, buffer, sizeof(buffer))) > 0)
-            {
-                write(dest_fd, buffer, bytes);
-            }
-        }
-
-        if (source_fd != -1) close(source_fd);
-        if (dest_fd   != -1) close(dest_fd);
+         // copy file from base layer into session (CoW)
+        /* now cow_file() does copying checking writes and removes any incomplete dest content on fail 
+            session copy permissions 0644 = rw-r--r-- */
+        if (cow_file(base_fpath, fpath, 0644) != 0)
+            return -EIO;
     }
 
     // truncate file

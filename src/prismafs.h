@@ -1,6 +1,6 @@
 /*
  * PrismaFS: A lightweight, layered filesystem.
- * Version: 1.4.0
+ * Version: 1.4.1
  * Copyright 2026 Goran Bunić
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -24,7 +24,7 @@
 #else
 #define FUSE_USE_VERSION 29
 #endif
-#define PRISMAFS_VERSION "1.4.0"
+#define PRISMAFS_VERSION "1.4.1"
 #define MAX_BASE_LAYERS 10
 
 #include <fuse.h>
@@ -68,6 +68,7 @@ void session_fullpath(char fpath[PATH_MAX], const char *path);
 int  base_fullpath_func(char fpath[PATH_MAX], const char *path);
 int  is_in_list(struct filename_node *list, const char *name);
 void add_to_list(struct filename_node **list_ptr, const char *name);
+int  cow_file(const char *src, const char *dst, mode_t mode);
 
 // --- FUSE operation prototypes ---
 // signatures differ between FUSE2 (macOS) and FUSE3 (Linux)
