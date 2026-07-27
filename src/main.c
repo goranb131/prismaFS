@@ -88,6 +88,7 @@ static struct fuse_operations myfs_oper = {
     .utimens  = myfs_utimens,
     .unlink   = myfs_unlink,
     .chmod    = myfs_chmod,
+    .chown    = myfs_chown,
     .mkdir    = myfs_mkdir,
     .rmdir    = myfs_rmdir,
     .rename   = myfs_rename,

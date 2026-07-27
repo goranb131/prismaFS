@@ -1,6 +1,6 @@
 /*
  * PrismaFS: A lightweight, layered filesystem.
- * Version: 1.2.2
+ * Version: 1.4.0
  * Copyright 2026 Goran Bunić
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -24,7 +24,7 @@
 #else
 #define FUSE_USE_VERSION 29
 #endif
-#define PRISMAFS_VERSION "1.2.2"
+#define PRISMAFS_VERSION "1.4.0"
 #define MAX_BASE_LAYERS 10
 
 #include <fuse.h>
@@ -78,6 +78,7 @@ int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
                  enum fuse_readdir_flags flags);
 int myfs_truncate(const char *path, off_t size, struct fuse_file_info *fi);
 int myfs_chmod(const char *path, mode_t mode, struct fuse_file_info *fi);
+int myfs_chown(const char *path, uid_t uid, gid_t gid, struct fuse_file_info *fi);
 int myfs_utimens(const char *path, const struct timespec ts[2], struct fuse_file_info *fi);
 int myfs_rename(const char *from, const char *to, unsigned int flags);
 #else
@@ -86,6 +87,7 @@ int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
                  off_t offset, struct fuse_file_info *fi);
 int myfs_truncate(const char *path, off_t size);
 int myfs_chmod(const char *path, mode_t mode);
+int myfs_chown(const char *path, uid_t uid, gid_t gid);
 int myfs_utimens(const char *path, const struct timespec ts[2]);
 int myfs_rename(const char *from, const char *to);
 #endif
