@@ -24,7 +24,7 @@
 #else
 #define FUSE_USE_VERSION 29
 #endif
-#define PRISMAFS_VERSION "1.4.1"
+#define PRISMAFS_VERSION "1.5.0"
 #define MAX_BASE_LAYERS 10
 
 #include <fuse.h>
@@ -38,12 +38,19 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/statvfs.h>
+#include <sys/xattr.h>  // extended attributes, macOS and Linux
 #include <stdlib.h>
 #ifdef __APPLE__
 #include <sys/sysctl.h> // sysctl (macOS only)
 #endif
 #include <sys/utsname.h>
 #include <stdint.h>
+
+// ENOATTR = "xattr not found" error on macOS
+// ENODATA on Linux
+#ifndef ENOATTR
+#define ENOATTR ENODATA
+#endif
 
 // 5 args = FUSE3 (Linux)
 // 4 args = FUSE2 (macOS)
@@ -82,6 +89,7 @@ int  base_fullpath_func(char fpath[PATH_MAX], const char *path);
 int  is_in_list(struct filename_node *list, const char *name);
 void add_to_list(struct filename_node **list_ptr, const char *name);
 int  cow_file(const char *src, const char *dst, mode_t mode);
+int  cow_xattrs(const char *src, const char *dst);
 
 /* -------------------------------------------------------------
    FUSE operation signatures (differences FUSE2(macOS) vs FUSE3(Linux)
@@ -121,5 +129,17 @@ int myfs_rmdir(const char *path);
 int myfs_unlink(const char *path);
 int myfs_symlink(const char *target, const char *linkpath);
 int myfs_readlink(const char *path, char *buf, size_t size);
+
+// xattr signatures, macOS FUSE has additional "uint32_t position" in getxattr/setxattr
+// listxattr and removexattr same sig on both
+#ifdef __APPLE__
+int myfs_getxattr(const char *path, const char *name, char *value, size_t size, uint32_t position);
+int myfs_setxattr(const char *path, const char *name, const char *value, size_t size, int flags, uint32_t position);
+#else
+int myfs_getxattr(const char *path, const char *name, char *value, size_t size);
+int myfs_setxattr(const char *path, const char *name, const char *value, size_t size, int flags);
+#endif
+int myfs_listxattr(const char *path, char *list, size_t size);
+int myfs_removexattr(const char *path, const char *name);
 
 #endif /* PRISMAFS_H */

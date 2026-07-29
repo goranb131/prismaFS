@@ -435,3 +435,270 @@ int myfs_readlink(const char *path, char *buf, size_t size)
 
     return -ENOENT;
 }
+
+/* 
+// helper func - CoW any type of BASE entry into session, 
+// copying existing xattrs. used by setxattr and removexattr 
+// before modifying xattrs.
+// 
+*/
+static int cow_entry_with_xattrs(const char *path,
+                                  const char *session_fpath,
+                                  const char *base_fpath)
+{
+    // create parent dirs in session, find last / in session path 
+    // (everything before is parent dir) and create with mkdir
+    char *dir_end = strrchr(session_fpath, '/');
+
+    if (dir_end && dir_end != session_fpath/* dont mkdir root / */) 
+    {
+        char dir_path[PATH_MAX];
+    
+        strncpy(dir_path, session_fpath, dir_end - session_fpath);
+        dir_path[dir_end - session_fpath] = '\0';
+        mkdir(dir_path, 0755);
+    }
+
+    struct stat st;
+    
+    // get file type and permissions for what will be CoW copied
+    if (lstat(base_fpath, &st) == -1) 
+     return -errno;
+
+    if (S_ISLNK(st.st_mode)) // if symlink, cant use open(), read(), etc 
+    // instead using readlink() to see what symlink points to and symlink() 
+    // to create it in session
+    {
+        char link_target[PATH_MAX];
+
+        ssize_t len = readlink(base_fpath, link_target, sizeof(link_target) - 1);
+    
+        if (len == -1) 
+         return -errno;
+        
+         link_target[len] = '\0';
+        
+         if (symlink(link_target, session_fpath) == -1 && errno != EEXIST)
+            return -errno;
+    } else if (S_ISDIR(st.st_mode)) { // if directory
+        // dirs have nothing to copy, simply create them in session with same permissions
+        if (mkdir(session_fpath, st.st_mode & 0777) == -1 && errno != EEXIST)
+            return -errno;
+    } else { // if regular file
+        // cow_file() to copy content 
+        if (cow_file(base_fpath, session_fpath, st.st_mode & 0666) != 0)
+            return -EIO;
+    }
+
+    // copy existing xattrs for session copy
+    // before caller of this func modifies or removes
+    cow_xattrs(base_fpath, session_fpath);
+
+    return 0;
+}
+
+// getxattr operation func implementation
+/* reads xattr from session layer 
+ macOS FUSE has uint32_t position
+ Linux uses lgetxattr() */
+#ifdef __APPLE__
+int myfs_getxattr(const char *path, const char *name, char *value, size_t size, uint32_t position)
+{
+    (void) position; // 0 for normal attributes
+#else
+int myfs_getxattr(const char *path, const char *name, char *value, size_t size)
+{
+#endif
+    char fpath[PATH_MAX];
+    session_fullpath(fpath, path);
+
+    // check .deleted marker to not return xattr for deleted files
+    char deleted_marker[PATH_MAX];
+
+    snprintf(deleted_marker, PATH_MAX, "%s.deleted", fpath);
+   
+    if (access(deleted_marker, F_OK) == 0)
+        return -ENOENT;
+
+    // try session layer
+    ssize_t res;
+
+#ifdef __APPLE__
+    // read xattr with name from session path to get num of bytes
+    // of "value" or -1 on error
+    res = getxattr(fpath, name, value, size, 0, XATTR_NOFOLLOW);
+#else
+    // if non-Apple
+    res = lgetxattr(fpath, name, value, size);
+#endif
+    // success
+    if (res != -1) 
+     return (int)res;
+    
+    // error (other than file not found or exists but no xattr with that name)
+    if (errno != ENOATTR && errno != ENOENT) 
+     return -errno;
+
+    // if xattr not in session, check base layers
+    if (base_fullpath_func(fpath, path) == 0) {
+#ifdef __APPLE__
+        res = getxattr(fpath, name, value, size, 0, XATTR_NOFOLLOW);
+#else
+        res = lgetxattr(fpath, name, value, size);
+#endif
+        // found, return bytes 
+        if (res != -1) 
+         return (int)res;
+        
+         // exists in base but no xattr or any other error
+         return -errno;
+    }
+
+    return -ENOATTR;
+}
+
+// setxattr operation func implementation
+// CoW file into session with existing xattrs then set "attr"
+#ifdef __APPLE__
+int myfs_setxattr(const char *path, const char *name, const char *value, size_t size, int flags, uint32_t position)
+{
+    (void) position;
+#else
+int myfs_setxattr(const char *path, const char *name, const char *value, size_t size, int flags)
+{
+#endif
+
+    char session_fpath[PATH_MAX];
+    session_fullpath(session_fpath, path);
+
+    // if file not in session yet, CoW it with its xattrs first
+    struct stat st;
+    // does file exist in session? if lstat fails, file's not there.
+    if (lstat(session_fpath, &st) == -1) {
+
+        // other than "file not found", exit as theres real error
+        if (errno != ENOENT) 
+         return -errno;
+
+        char base_fpath[PATH_MAX];
+
+        if (base_fullpath_func(base_fpath, path) == -1) 
+         return -ENOENT;
+
+        /* copy file into session, with xattrs */
+        int ret = cow_entry_with_xattrs(path, session_fpath, base_fpath);
+        
+        // when above is called session_fpath is on disk with content and xattrs
+        if (ret != 0) 
+         return ret;
+    }
+
+    // once above is done having existing session copy:
+#ifdef __APPLE__
+    // write new xattr into session copy
+    if (setxattr(session_fpath, name, value, size, 0, flags | XATTR_NOFOLLOW) == -1)
+        return -errno;
+#else
+    // for non-Apple:
+    if (lsetxattr(session_fpath, name, value, size, flags) == -1)
+        return -errno;
+#endif
+    return 0;
+}
+
+/* listxattr operation func implementation
+   - different from getxattr as it returns list of xattr names instead single value.
+
+// list xattrs from session layer 
+// return bytes 
+*/
+int myfs_listxattr(const char *path, char *list, size_t size)
+{ // size param has 2 modes handled internally by syscall:
+  // can be size 0 and list NULL - get only byte size needed by FUSE
+  // >0 and list not NULL - fill the buffer and get byte size written
+    char fpath[PATH_MAX];
+    session_fullpath(fpath, path);
+
+    // check .deleted marker
+    char deleted_marker[PATH_MAX];
+
+    snprintf(deleted_marker, PATH_MAX, "%s.deleted", fpath);
+    
+    if (access(deleted_marker, F_OK) == 0)
+        return -ENOENT;
+
+    ssize_t res;
+
+#ifdef __APPLE__
+    // on session path
+    res = listxattr(fpath, list, size, XATTR_NOFOLLOW);
+#else
+    // non-Apple
+    res = llistxattr(fpath, list, size);
+#endif
+
+    // success, get bytes
+    if (res != -1) 
+     return (int)res;
+    
+    // stop if anything other than "file not found" in session
+    if (errno != ENOENT) 
+      return -errno;
+
+    // search base layers
+    if (base_fullpath_func(fpath, path) == 0) {
+#ifdef __APPLE__
+        res = listxattr(fpath, list, size, XATTR_NOFOLLOW);
+#else
+        res = llistxattr(fpath, list, size);
+#endif
+       
+        if (res != -1) 
+         return (int)res;
+        
+        return -errno; // something went wrong reading xattrs, return what
+    }
+
+    return 0; // file not found in any layer, 0 xattrs
+}
+
+// removexattr operation func implementation
+// CoWs file into session with existing xattrs, then remove "attr"
+int myfs_removexattr(const char *path, const char *name)
+{
+    char session_fpath[PATH_MAX];
+    session_fullpath(session_fpath, path);
+
+    // if file not in session yet, CoW it with its xattrs first
+    struct stat st;
+
+    if (lstat(session_fpath, &st) == -1) 
+    { // does file exist in session
+
+        // if not, stop (assuming error is other than "file not found")
+        if (errno != ENOENT) 
+         return -errno;
+        
+        char base_fpath[PATH_MAX];
+        
+        // not in BASE, return "not found"
+        if (base_fullpath_func(base_fpath, path) == -1) 
+         return -ENOENT;
+
+        // file in BASE, CoW it into session with xattrs
+        int ret = cow_entry_with_xattrs(path, session_fpath, base_fpath);
+        
+        if (ret != 0) 
+         return ret;
+    }
+
+    // with above guaranteed, remove xattr from session copy:
+#ifdef __APPLE__
+    if (removexattr(session_fpath, name, XATTR_NOFOLLOW) == -1)
+        return -errno;
+#else
+    if (lremovexattr(session_fpath, name) == -1)
+        return -errno;
+#endif
+    return 0;
+}
