@@ -148,3 +148,96 @@ int cow_file(const char *src, const char *dst, mode_t mode)
 
     return ret;
 }
+
+/* copies all extended attributes (regular files, directories, symlinks) from src to dest
+  - for symlinks need to make sure to copy symlink xattrs , not the targets pointed to by symlink - using
+    XATTR_NOFOLLOW on macOS and l prefix functions on Linux.
+
+ called after cow_file() so the session copy inherits base-layer xattrs
+ before setxattr/removexattr modifies them.
+ 4/6-arg xattr syscalls with XATTR_NOFOLLOW on macOS, and
+ lgetxattr/lsetxattr on Linux. 
+
+Function per platform: 
+
+note: just like lstat is used instead of stat, Linux has functions with l prefix, macOS uses XATTR_NOFOLLOW flag
+
+// macOS:
+// getxattr(src, name, val, val_size, 0, XATTR_NOFOLLOW)
+//                                 
+//                                 
+
+// Linux: 
+// lgetxattr(src, name, val, val_size)
+// no position and no options, symlink is handled by l-prefix
+ */
+
+int cow_xattrs(const char *src, const char *dst)
+{
+#ifdef __APPLE__
+    // get the total size needed for the full xattr name list
+    ssize_t list_size = listxattr(src, NULL, 0, XATTR_NOFOLLOW);
+   
+    if (list_size <= 0) return 0; // no xattrs or error 
+
+    char *list = malloc(list_size);
+
+    if (!list) return -ENOMEM;
+
+    if (listxattr(src, list, list_size, XATTR_NOFOLLOW) == -1) {
+        free(list);
+        return -errno;
+    }
+
+    // list is sequence like: "name1\0name2\0..."
+    // loop and copy attr values to dest
+    char *name = list;
+
+    while (name < list + list_size) {
+        // NULL buffer and size 0. just checking value byte size:
+        ssize_t val_size = getxattr(src, name, NULL, 0, 0, XATTR_NOFOLLOW); 
+            char *val = malloc(val_size); // allocate reported bytes above, for the value
+           
+            if (val) {
+                // now with buffer, reading value into val, with return to equal val_size for read confirmation
+                if ( getxattr(src, name, val, val_size, 0, XATTR_NOFOLLOW ) == val_size)
+                   
+                   // write above value to dest file using name
+                   setxattr(dst, name, val, val_size, 0, XATTR_NOFOLLOW);
+                free(val);
+            }
+        }
+        name += strlen(name) + 1; // next name in list
+    }
+    free(list);
+#else
+    ssize_t list_size = llistxattr(src, NULL, 0);
+
+    if (list_size <= 0) return 0;
+
+    char *list = malloc(list_size);
+
+    if (!list) return -ENOMEM;
+
+    if (llistxattr(src, list, list_size) == -1) {
+        free(list);
+        return -errno;
+    }
+
+    char *name = list;
+    while (name < list + list_size) {
+        ssize_t val_size = lgetxattr(src, name, NULL, 0);
+        if (val_size > 0) {
+            char *val = malloc(val_size);
+            if (val) {
+                if (lgetxattr(src, name, val, val_size) == val_size)
+                    lsetxattr(dst, name, val, val_size, 0);
+                free(val);
+            }
+        }
+        name += strlen(name) + 1;
+    }
+    free(list);
+#endif
+    return 0;
+}

@@ -104,7 +104,11 @@ static struct fuse_operations myfs_oper = {
     .rmdir    = myfs_rmdir,
     .rename   = myfs_rename,
     .symlink  = myfs_symlink,
-    .readlink = myfs_readlink
+    .readlink = myfs_readlink,
+    .getxattr    = myfs_getxattr,
+    .setxattr    = myfs_setxattr,
+    .listxattr   = myfs_listxattr,
+    .removexattr = myfs_removexattr
     // extend operations here
 };
 
