@@ -1,6 +1,6 @@
 /*
  * PrismaFS: A lightweight, layered filesystem.
- * Version: 1.4.1
+ * Version: 1.5.0
  * Copyright 2026 Goran Bunić
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
