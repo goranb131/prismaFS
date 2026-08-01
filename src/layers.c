@@ -195,16 +195,22 @@ int cow_xattrs(const char *src, const char *dst)
 
     while (name < list + list_size) {
         // NULL buffer and size 0. just checking value byte size:
-        ssize_t val_size = getxattr(src, name, NULL, 0, 0, XATTR_NOFOLLOW); 
-            char *val = malloc(val_size); // allocate reported bytes above, for the value
-           
+        ssize_t val_size = getxattr(src, name, NULL, 0, 0, XATTR_NOFOLLOW);
+       
+        // if its not 0 or negative(error), allocate buff size:
+        if (val_size > 0) 
+        {
+            char *val = malloc(val_size);
+        
+            // malloc fail guard:
             if (val) {
                 // now with buffer, reading value into val, with return to equal val_size for read confirmation
-                if ( getxattr(src, name, val, val_size, 0, XATTR_NOFOLLOW ) == val_size)
-                   
-                   // write above value to dest file using name
-                   setxattr(dst, name, val, val_size, 0, XATTR_NOFOLLOW);
-                free(val);
+                if ( getxattr(src, name, val, val_size, 0, XATTR_NOFOLLOW) == val_size)
+                 
+                    // write above value to dest file using name
+                    setxattr(dst, name, val, val_size, 0, XATTR_NOFOLLOW);
+                
+                 free(val);
             }
         }
         name += strlen(name) + 1; // next name in list
