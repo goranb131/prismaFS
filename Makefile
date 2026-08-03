@@ -41,7 +41,7 @@ install: $(TARGET) $(MANPAGE)
 	@install -m 755 $(TARGET) $(BINDIR)/$(TARGET)
 	@echo "Installing $(MANPAGE) to $(MANDIR)..."
 	@mkdir -p $(MANDIR)
-	@install -m 644 $(MANPAGE) $(MANDIR)/$(MANPAGE)
+	@install -m 644 $(MANPAGE) $(MANDIR)/$(notdir $(MANPAGE))
 	@echo "Installation complete."
 
 # uninstall the binary and man page
@@ -49,7 +49,7 @@ uninstall:
 	@echo "Removing $(TARGET) from $(BINDIR)..."
 	@rm -f $(BINDIR)/$(TARGET)
 	@echo "Removing $(MANPAGE) from $(MANDIR)..."
-	@rm -f $(MANDIR)/$(MANPAGE)
+	@rm -f $(MANDIR)/$(notdir $(MANPAGE))
 	@echo "Uninstallation complete."
 
 # clean up build artifacts
