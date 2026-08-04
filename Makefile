@@ -54,8 +54,16 @@ uninstall:
 
 # clean up build artifacts
 clean:
-	rm -f $(TARGET)
+	rm -f $(TARGET) $(TARGET)-static-linux
 	@echo "Cleaned up build files."
+
+# static-libfuse3 Linux build, avoid depending on the host libfuse3
+# soname at runtime (glibc is dynamic, only libfuse3 static).
+LIBFUSE3_STATIC ?= /usr/local/lib/libfuse3.a
+
+static-linux: $(SRC)
+	$(CC) $(CFLAGS) $(shell pkg-config --cflags fuse3) -o $(TARGET)-static-linux $(SRC) $(LIBFUSE3_STATIC) -pthread -ldl
+	@echo "Build complete (static libfuse3): $(TARGET)-static-linux"
 
 # run binary for testing
 run: all
