@@ -1,0 +1,4 @@
+/prismafs
+*.o
+*.dSYM/
+.DS_Store
