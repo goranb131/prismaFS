@@ -4,11 +4,24 @@ CFLAGS = -Wall -D_FILE_OFFSET_BITS=64 -Isrc
 
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
-FUSE_CFLAGS := -I/usr/local/include
-FUSE_LIBS := /usr/local/lib/libosxfuse.2.dylib
+# macFUSE always installs to /usr/local including when homebrew prefix is
+# /opt/homebrew. Override FUSE_PREFIX only for non-standard install.
+FUSE_PREFIX ?= /usr/local
+FUSE_CFLAGS := -I$(FUSE_PREFIX)/include
+# macFUSE 4.0 renamed libosxfuse to libfuse. New installs might ship only
+# libfuse, older ones only libosxfuse, and some one as symlink to the
+# other. Link the first that exists by absolute path. Homebrew compiler
+# strips -L flags, but not file arguments.
+FUSE_LIBS := $(firstword $(wildcard \
+	$(FUSE_PREFIX)/lib/libfuse.2.dylib \
+	$(FUSE_PREFIX)/lib/libosxfuse.2.dylib \
+	$(FUSE_PREFIX)/lib/libfuse.dylib \
+	$(FUSE_PREFIX)/lib/libosxfuse_i64.2.dylib))
+FUSE_MISSING_MSG := macFUSE not found under $(FUSE_PREFIX). Install it from https://macfuse.io
 else
 FUSE_CFLAGS := $(shell pkg-config --cflags fuse3 2>/dev/null)
 FUSE_LIBS := $(shell pkg-config --libs fuse3 2>/dev/null)
+FUSE_MISSING_MSG := libfuse3 not found by pkg-config. Install libfuse3 and its development headers
 endif
 
 # binary name
@@ -31,6 +44,10 @@ all: $(TARGET)
 
 # rule to compile the binary
 $(TARGET): $(SRC)
+	@if [ -z "$(FUSE_LIBS)" ]; then \
+		echo "Error: $(FUSE_MISSING_MSG)" >&2; \
+		exit 1; \
+	fi
 	$(CC) $(CFLAGS) $(FUSE_CFLAGS) -o $(TARGET) $(SRC) $(FUSE_LIBS)
 	@echo "Build complete: $(TARGET)"
 
