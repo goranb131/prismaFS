@@ -128,8 +128,7 @@ int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 
             // full path to check if file exists in session
             char session_file_path[PATH_MAX];
-            session_fullpath(session_file_path, path);
-            snprintf(session_file_path, PATH_MAX, "%s/%s", session_file_path, de->d_name);
+            snprintf(session_file_path, PATH_MAX, "%s/%s", session_dir, de->d_name);
 
             // skip files in session layer
             if (access(session_file_path, F_OK) == 0)

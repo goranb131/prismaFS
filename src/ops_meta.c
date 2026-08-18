@@ -448,7 +448,7 @@ static int cow_entry_with_xattrs(const char *path,
 {
     // create parent dirs in session, find last / in session path 
     // (everything before is parent dir) and create with mkdir
-    char *dir_end = strrchr(session_fpath, '/');
+    const char *dir_end = strrchr(session_fpath, '/');
 
     if (dir_end && dir_end != session_fpath/* dont mkdir root / */) 
     {
