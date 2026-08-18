@@ -188,6 +188,15 @@ int run_command(int argc, char **argv)
             _exit(1);
         }
         if (fuse_pid == 0) {
+            int n = open("/dev/null", O_RDWR);
+            if (n >= 0) {
+                dup2(n, 0);
+                dup2(n, 1);
+                dup2(n, 2);
+                if (n > 2)
+                    close(n);
+            }
+            setsid();
             prctl(PR_SET_PDEATHSIG, SIGTERM);
             _exit(prismafs_fuse_foreground(tmpl) == 0 ? 0 : 1);
         }
