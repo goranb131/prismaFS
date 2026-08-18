@@ -102,6 +102,89 @@ static int load_config(const char *config_path)
     return 0;
 }
 
+int configure_layers(const char *config_path)
+{
+    if (config_path)
+        return load_config(config_path);
+
+    char *session_dir = getenv("SESSION_LAYER_DIR");
+
+    if (session_dir != NULL) {
+        if (expand_tilde(session_dir, session_path, PATH_MAX) != 0
+            || session_path[0] != '/') {
+
+            fprintf(stderr,
+                    "prismafs: SESSION_LAYER_DIR must be an absolute path, got '%s'\n",
+                    session_dir);
+
+            return -1;
+        }
+
+        char *base_dirs_env = getenv("BASE_LAYER_DIRS");
+
+        if (base_dirs_env) {
+            char *base_dirs = strdup(base_dirs_env);
+
+            if (base_dirs) {
+                char *token = strtok(base_dirs, ",");
+
+                while (token && num_base_layers < MAX_BASE_LAYERS) {
+                    if (expand_tilde(token, base_paths[num_base_layers], PATH_MAX) != 0
+                        || base_paths[num_base_layers][0] != '/') {
+
+                        fprintf(stderr,
+                                "prismafs: BASE_LAYER_DIRS entry must be an absolute path, got '%s'\n",
+                                token);
+                        free(base_dirs);
+
+                        return -1;
+                    }
+
+                    num_base_layers++;
+                    token = strtok(NULL, ",");
+                }
+
+                free(base_dirs);
+            }
+        } else {
+            strncpy(base_paths[0], base_path_initial, PATH_MAX - 1);
+            base_paths[0][PATH_MAX - 1] = '\0';
+            num_base_layers = 1;
+        }
+
+        return 0;
+    }
+
+    int loaded = 0;
+    char *home = getenv("HOME");
+
+    if (home) {
+        char default_conf[PATH_MAX];
+
+        snprintf(default_conf, sizeof(default_conf),
+                 "%s/.config/prismafs/default.conf", home);
+
+        if (access(default_conf, F_OK) == 0) {
+            if (load_config(default_conf) != 0)
+                return -1;
+
+            loaded = 1;
+        }
+    }
+
+    if (!loaded) {
+        fprintf(stderr,
+            "prismafs: no config found. Options:\n"
+            "  prismafs init              - create ~/.config/prismafs/default.conf\n"
+            "  prismafs -c <config> <mnt> - use a specific config file\n"
+            "  prismafs <mnt>             - set SESSION_LAYER_DIR / BASE_LAYER_DIRS\n");
+
+        return -1;
+    }
+
+    return 0;
+}
+
 /* ----------------------------------
 // INTERACTIVE PROMPTING FUNCTION 
 // 
@@ -291,11 +374,29 @@ static struct fuse_operations myfs_oper = {
     // extend operations here
 };
 
+int prismafs_fuse_foreground(const char *mountpoint)
+{
+    char mnt[PATH_MAX];
+    char arg0[] = "prismafs";
+    char arg1[] = "-f";
+    char arg2[] = "-o";
+    char arg3[] = "auto_unmount";
+
+    if (snprintf(mnt, sizeof(mnt), "%s", mountpoint) >= (int)sizeof(mnt))
+        return 1;
+
+    char *args[] = { arg0, arg1, arg2, arg3, mnt, NULL };
+    return fuse_main(5, args, &myfs_oper, NULL);
+}
+
 int main(int argc, char *argv[])
 {
     // prismafs init - interactive config wizard, never reaches FUSE
     if (argc > 1 && strcmp(argv[1], "init") == 0)
         return run_init();
+
+    if (argc > 1 && strcmp(argv[1], "run") == 0)
+        return run_command(argc, argv);
 
     // POSIX version flag
     if (argc > 1 && (strcmp(argv[1], "-v") == 0 || strcmp(argv[1], "-V") == 0)) {
@@ -344,103 +445,9 @@ int main(int argc, char *argv[])
         }
     }
 
-    if (config_path) {
-        if (load_config(config_path) != 0) {
-            free(fuse_argv);
-            return 1;
-        }
-    } else {
-        // priority: 
-        // 1. env vars 
-        // 2. ~/.config/prismafs/default.conf 
-        // 3. error
-        char *session_dir = getenv("SESSION_LAYER_DIR");
-
-        if (session_dir != NULL) {
-            if (expand_tilde(session_dir, session_path, PATH_MAX) != 0
-                || session_path[0] != '/') {
-    
-                fprintf(stderr,
-                        "prismafs: SESSION_LAYER_DIR must be an absolute path, got '%s'\n",
-                        session_dir);
-                free(fuse_argv);
-
-                return 1;
-            }
-
-            // , separated base layer dirs list
-            // env which shouldnt be modified directly:
-            char *base_dirs_env = getenv("BASE_LAYER_DIRS");
-            
-            if (base_dirs_env) {
-
-                // modifying process environment block pointed to by pointer from getenv directly is undefined behavior. 
-                // strtok modifies input to overwrite separators with \0, strdup creates private heap copy first 
-                // so strtok can mutate it in safe way not affecting original 
-                char *base_dirs = strdup(base_dirs_env);
-                
-                if (base_dirs) {
-                    char *token = strtok(base_dirs, ",");
-
-                    while (token && num_base_layers < MAX_BASE_LAYERS) {
-                        if (expand_tilde(token, base_paths[num_base_layers], PATH_MAX) != 0
-                            || base_paths[num_base_layers][0] != '/') {
-                           
-                            fprintf(stderr,
-                                    "prismafs: BASE_LAYER_DIRS entry must be an absolute path, got '%s'\n",
-                                    token);
-                            free(base_dirs);
-                            free(fuse_argv);
-                       
-                            return 1;
-                        }
-
-                        num_base_layers++;
-                        token = strtok(NULL, ",");
-                    }
-
-                    free(base_dirs);
-                }
-            }
-             // if session layer set, but BASE wasnt , default is "/" 
-             else {
-                strncpy(base_paths[0], base_path_initial, PATH_MAX - 1);
-                base_paths[0][PATH_MAX - 1] = '\0';
-                num_base_layers = 1;
-            }
-        } else {
-            // when no env vars, auto detect ~/.config/prismafs/default.conf:
-            int loaded = 0;
-            char *home = getenv("HOME"); 
-
-            if (home) {
-                char default_conf[PATH_MAX];
-
-                //build path for config
-                snprintf(default_conf, sizeof(default_conf),
-                         "%s/.config/prismafs/default.conf", home);
-               
-                // check it exists and load it filling session_path and base_paths
-                if (access(default_conf, F_OK) == 0) {
-                    if (load_config(default_conf) != 0) {
-                        free(fuse_argv);
-      
-                        return 1;
-                    }
-
-                    loaded = 1; // success loading
-                }
-            }
-            if (!loaded) {
-                fprintf(stderr,
-                    "prismafs: no config found. Options:\n"
-                    "  prismafs init              - create ~/.config/prismafs/default.conf\n"
-                    "  prismafs -c <config> <mnt> - use a specific config file\n"
-                    "  prismafs <mnt>             - set SESSION_LAYER_DIR / BASE_LAYER_DIRS\n");
-                free(fuse_argv);
-                return 1;
-            }
-        }
+    if (configure_layers(config_path) != 0) {
+        free(fuse_argv);
+        return 1;
     }
 
     int ret = fuse_main(fuse_argc, fuse_argv, &myfs_oper, NULL);
