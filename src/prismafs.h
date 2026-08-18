@@ -90,6 +90,8 @@ int  is_in_list(struct filename_node *list, const char *name);
 void add_to_list(struct filename_node **list_ptr, const char *name);
 int  cow_file(const char *src, const char *dst, mode_t mode);
 int  cow_xattrs(const char *src, const char *dst);
+int  expand_tilde(const char *in, char *out, size_t outsz);
+int  mkdir_p(const char *path, mode_t mode);
 
 /* -------------------------------------------------------------
    FUSE operation signatures (differences FUSE2(macOS) vs FUSE3(Linux)

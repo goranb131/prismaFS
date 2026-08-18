@@ -4,6 +4,8 @@ prismafs \- lightweight, layered filesystem
 .SH SYNOPSIS
 .B prismafs
 [\-c \fIconfig\fR] [\-v | \-h] <mountpoint>
+.br
+.B prismafs init
 .SH DESCRIPTION
 .B PrismaFS
 is a lightweight, layered filesystem. It allows users to overlay base filesystems with session-specific layers for experimentation, isolation, and flexibility.
@@ -14,6 +16,19 @@ This utility mounts PrismaFS at the specified
 .I SESSION_LAYER_DIR
 and
 .I BASE_LAYER_DIRS.
+
+All layer paths, in config file or with environment variables, must be absolute. Leading
+.B ~/
+is expanded for
+.BR $HOME ;
+any other relative path is rejected.
+
+.SH COMMANDS
+.TP
+.B init
+Interactively prompt for session and base directory, create session directory, and write
+.IR ~/.config/prismafs/default.conf .
+Exits without mounting. Any following mounts then need no flags or environment variables.
 
 .SH OPTIONS
 .TP
@@ -31,7 +46,7 @@ Displays the current version of PrismaFS and exits.
 Displays this help message and exits.
 
 .SH CONFIG FILE
-A plain-text file with one directive per line. Lines beginning with
+Plain-text file with one directive per line. Lines beginning with
 .B #
 are comments. Empty lines are ignored.
 .TP
@@ -39,7 +54,7 @@ are comments. Empty lines are ignored.
 Directory used for session-specific writes (required once).
 .TP
 .B base \fI<path>\fR
-A base layer directory (required at least once). Multiple
+Base layer directory (required at least once). Multiple
 .B base
 lines are listed in priority order.
 
@@ -63,6 +78,12 @@ Defines the directory used for session-specific layers.
 Comma-separated list of base directories to use as layers.
 
 .SH EXAMPLES
+Create config interactively, then mount with no flags:
+.nf
+    prismafs init
+    prismafs /tmp/prismafs_mount
+.fi
+
 Mount using config file:
 .nf
     prismafs -c ~/.config/prismafs/dev.conf /tmp/prismafs_mount

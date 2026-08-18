@@ -90,6 +90,65 @@ void add_to_list(struct filename_node **filename_list_ptr, const char *name) {
     *filename_list_ptr = new_node;
 }
 
+// FIX function to expand tilde ~ for HOME dir path
+int expand_tilde(const char *in, char *out, size_t outsz)
+{
+    if (in == NULL || out == NULL || outsz == 0)
+        return -1;
+
+    if (in[0] != '~') {
+        if ((size_t)snprintf(out, outsz, "%s", in) >= outsz)
+            return -1;
+        return 0;
+    }
+
+    if (in[1] != '\0' && in[1] != '/')
+        return -1;
+
+    const char *home = getenv("HOME");
+    if (home == NULL || home[0] == '\0')
+        return -1;
+
+    size_t home_len = strlen(home);
+    while (home_len > 1 && home[home_len - 1] == '/')
+        home_len--;
+
+    if ((size_t)snprintf(out, outsz, "%.*s%s", (int)home_len, home, in + 1) >= outsz)
+        return -1;
+
+    return 0;
+}
+
+int mkdir_p(const char *path, mode_t mode)
+{
+    if (path == NULL || path[0] != '/')
+        return -1;
+
+    char tmp[PATH_MAX];
+
+    if ((size_t)snprintf(tmp, sizeof(tmp), "%s", path) >= sizeof(tmp))
+        return -1;
+
+    size_t len = strlen(tmp);
+    while (len > 1 && tmp[len - 1] == '/')
+        tmp[--len] = '\0';
+
+    for (char *p = tmp + 1; *p != '\0'; p++) {
+        if (*p != '/')
+            continue;
+
+        *p = '\0';
+        if (mkdir(tmp, mode) == -1 && errno != EEXIST)
+            return -1;
+        *p = '/';
+    }
+
+    if (mkdir(tmp, mode) == -1 && errno != EEXIST)
+        return -1;
+
+    return 0;
+}
+
 
 /* 
 -------------------------------------------------
