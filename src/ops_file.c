@@ -40,13 +40,12 @@ int myfs_open(const char *path, struct fuse_file_info *fi)
         return -ENOENT;
     }
 
-    /* file is in base layer — writes will CoW into session via myfs_write/truncate.
-     * do NOT open with fi->flags here: flags may contain O_WRONLY|O_TRUNC which
-     * would truncate the base file directly. Just confirm existence and return. */
+    // dont open with fi -> flags, because flags O_WRONLY|O_TRUNC could truncate file
     if (base_fullpath_func(fpath, path) == 0)
         return 0;
-    
 
+    // if after above file not in layers, log and err
+    fprintf(stderr, "open: %s not found in session or base layers\n", path);
     return -ENOENT;
 }
 

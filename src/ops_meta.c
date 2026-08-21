@@ -326,12 +326,14 @@ int myfs_chown(const char *path, uid_t uid, gid_t gid)
         if (errno != ENOENT)
             return -errno;
 
-        // not in session — look in base layers
-        if (base_fullpath_func(base_fpath, path) == -1)
+        // not in session
+        int found_in_base = (base_fullpath_func(base_fpath, path) == 0);
+        if (!found_in_base)
             return -ENOENT;
 
         // ensure parent directory exists in session layer
         char *dir_end = strrchr(fpath, '/');
+
         if (dir_end && dir_end != fpath) {
             char dir_path[PATH_MAX];
             strncpy(dir_path, fpath, dir_end - fpath);
