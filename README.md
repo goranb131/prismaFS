@@ -89,6 +89,10 @@ sudo chmod +x /usr/local/bin/prismafs
 
 At this earlier stage of development, PrismaFS also minds Alpine and other musl-based distros, so separate static binary is attached to same [GitHub Release](https://github.com/goranb131/prismaFS/releases): `prismafs-<version>-linux-x86_64-static-musl`. It has musl and libfuse3 compiled in, so it has no dependency on host libc or libfuse3 version, and runs on any Linux distro, not only Alpine. Install steps are the same, just with this filename instead.
 
+---
+
+Fastest way to verify that install was success, or that binary works: `prismafs -v` (or `./prismafs -v` from a source build, or the downloaded filename). It prints PrismaFS version and exits. 
+
 ## Configuration
 
 PrismaFS resolves its layer configuration in this order:
@@ -223,6 +227,14 @@ chmod +x ~/.local/bin/prismafs
 ```
 
 Same two `cp` / `chmod` lines for the musl filename.
+
+Simplest check that install worked, or that your binary runs is to print version with PrismaFS command. How you type it depends on where the file is:
+
+- Built from source, still inside repository after `make`: `./prismafs -v`
+- Downloaded binary, still in the folder you saved it (Downloads or wherever): `./prismafs-1.7.1-linux-x86_64-static -v` (or the musl filename). Or the full path: `/full/path/to/prismafs-1.7.1-linux-x86_64-static -v`
+- Already on PATH (Homebrew, `sudo make install`, or you copied it to `~/.local/bin` / `/usr/local/bin`): just `prismafs -v`
+
+If it prints `PrismaFS Version: 1.7.1`, you are good. Use this same format (`./prismafs`, downloaded filename, or `prismafs`) for all the remaining commands below.
 
 - **a.** Linux port: [Installation](#installation) (source or prebuilt binary).
 - **b.** [Symlinks](#symlinks)
