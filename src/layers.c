@@ -10,6 +10,7 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
    ============================================================ */
 #include "prismafs.h"
+#include <time.h>
 
 // multiple base layers can be combined for session view in single mount
 char base_paths[MAX_BASE_LAYERS][PATH_MAX];
@@ -127,6 +128,7 @@ int mkdir_p(const char *path, mode_t mode)
     char tmp[PATH_MAX];
 
     if ((size_t)snprintf(tmp, sizeof(tmp), "%s", path) >= sizeof(tmp))
+
         return -1;
 
     size_t len = strlen(tmp);
@@ -135,16 +137,63 @@ int mkdir_p(const char *path, mode_t mode)
 
     for (char *p = tmp + 1; *p != '\0'; p++) {
         if (*p != '/')
+
             continue;
 
         *p = '\0';
         if (mkdir(tmp, mode) == -1 && errno != EEXIST)
+
             return -1;
+
         *p = '/';
     }
 
     if (mkdir(tmp, mode) == -1 && errno != EEXIST)
+
         return -1;
+
+    return 0;
+}
+
+// writes small info file alongside session_path, not inside it (to never show
+// as a file in mounted view) with name, creation time, description and
+// base layers. done once, if already exists, session keeps
+// original name and creation time on any later mounts
+int write_session_manifest(const char *name, const char *description)
+{
+    char manifest_path[PATH_MAX];
+    size_t len = strlen(session_path);
+
+    while (len > 1 && session_path[len - 1] == '/')
+        len--;
+
+    if ((size_t)snprintf(manifest_path, sizeof(manifest_path), "%.*s.prismafs-session",
+                          (int)len, session_path) >= sizeof(manifest_path))
+
+        return -1;
+
+    if (access(manifest_path, F_OK) == 0)
+    
+        return 0;
+
+    FILE *f = fopen(manifest_path, "w");
+
+    if (!f)
+        return -1;
+
+    time_t now = time(NULL);
+    char ts[32];
+
+    strftime(ts, sizeof(ts), "%Y-%m-%dT%H:%M:%SZ", gmtime(&now));
+
+    fprintf(f, "name %s\n", (name && name[0]) ? name : "(unnamed)");
+    fprintf(f, "created %s\n", ts);
+    fprintf(f, "description %s\n", (description && description[0]) ? description : "");
+
+    for (int i = 0; i < num_base_layers; i++)
+        fprintf(f, "base %s\n", base_paths[i]);
+
+    fclose(f);
 
     return 0;
 }

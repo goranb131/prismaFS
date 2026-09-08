@@ -20,6 +20,7 @@ static const char *base_path_initial = "/"; // default base layer path fallback
 static int load_config(const char *config_path)
 {
     FILE *f = fopen(config_path, "r");
+
     if (!f) {
         fprintf(stderr, "prismafs: cannot open config file '%s': %s\n",
                 config_path, strerror(errno));
@@ -32,6 +33,7 @@ static int load_config(const char *config_path)
     while (fgets(line, sizeof(line), f)) {
         // strip trailing newline
         size_t len = strlen(line);
+
         while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r'))
             line[--len] = '\0';
 
@@ -44,6 +46,7 @@ static int load_config(const char *config_path)
 
         char keyword[16];
         char value[4096];
+
         if (sscanf(p, "%15s %4095s", keyword, value) != 2) {
             fprintf(stderr, "prismafs: ignoring malformed config line: %s\n", p);
             continue;
@@ -71,18 +74,23 @@ static int load_config(const char *config_path)
                 fprintf(stderr, "prismafs: duplicate 'session' directive, ignoring: %s\n", value);
                 continue;
             }
+
             strncpy(session_path, resolved, PATH_MAX - 1);
             session_path[PATH_MAX - 1] = '\0';
             found_session = 1;
+
         } else if (strcmp(keyword, "base") == 0) {
             if (num_base_layers >= MAX_BASE_LAYERS) {
                 fprintf(stderr, "prismafs: max base layers (%d) reached, ignoring: %s\n",
                         MAX_BASE_LAYERS, value);
+
                 continue;
             }
+
             strncpy(base_paths[num_base_layers], resolved, PATH_MAX - 1);
             base_paths[num_base_layers][PATH_MAX - 1] = '\0';
             num_base_layers++;
+
         } else {
             fprintf(stderr, "prismafs: unknown config directive '%s', ignoring\n", keyword);
         }
@@ -92,10 +100,12 @@ static int load_config(const char *config_path)
 
     if (!found_session) {
         fprintf(stderr, "prismafs: config '%s' is missing a 'session' directive\n", config_path);
+
         return -1;
     }
     if (num_base_layers == 0) {
         fprintf(stderr, "prismafs: config '%s' has no 'base' directives\n", config_path);
+
         return -1;
     }
 
@@ -165,6 +175,7 @@ int configure_layers(const char *config_path)
                  "%s/.config/prismafs/default.conf", home);
 
         if (access(default_conf, F_OK) == 0) {
+
             if (load_config(default_conf) != 0)
                 return -1;
 
@@ -322,6 +333,7 @@ static int run_init(void)
    
     if (mkdir(conf_dir, 0755) == -1 && errno != EEXIST) {
         fprintf(stderr, "prismafs init: cannot create %s: %s\n", conf_dir, strerror(errno));
+
         return 1;
     }
 
@@ -330,6 +342,7 @@ static int run_init(void)
    
     if (!f) {
         fprintf(stderr, "prismafs init: cannot write %s: %s\n", conf_path, strerror(errno));
+
         return 1;
     }
 
@@ -374,6 +387,8 @@ static struct fuse_operations myfs_oper = {
     // extend operations here
 };
 
+// fakes argv for fuse_main, then prismafs ns can mount in foreground from inside
+// forked child. FUSE setup as normal mount, but without real shell command line
 int prismafs_fuse_foreground(const char *mountpoint)
 {
     char mnt[PATH_MAX];
@@ -395,8 +410,10 @@ int main(int argc, char *argv[])
     if (argc > 1 && strcmp(argv[1], "init") == 0)
         return run_init();
 
-    if (argc > 1 && strcmp(argv[1], "run") == 0)
-        return run_command(argc, argv);
+    // prismafs ns - Linux only, runs command with prismafs mounted over one path,
+    // private mount namespace so nothing outside that command sees the layered view
+    if (argc > 1 && strcmp(argv[1], "ns") == 0)
+        return ns_command(argc, argv);
 
     // POSIX version flag
     if (argc > 1 && (strcmp(argv[1], "-v") == 0 || strcmp(argv[1], "-V") == 0)) {
@@ -405,14 +422,16 @@ int main(int argc, char *argv[])
     }
 
     if (argc > 1 && (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0)) {
-        printf("Usage: prismafs [-c <config>] <mountpoint>\n"
+        printf("Usage: prismafs [-c <config>] [-n <name>] [--desc <description>] <mountpoint>\n"
                "       prismafs init\n"
                "       prismafs -v\n"
                "\n"
                "Options:\n"
-               "  -c <config>  load layer configuration from <config>\n"
-               "  -v           print version and exit\n"
-               "  -h           print this help and exit\n"
+               "  -c <config>       load layer configuration from <config>\n"
+               "  -n <name>         name this session (only recorded on first mount)\n"
+               "  --desc <text>     short description for this session\n"
+               "  -v                print version and exit\n"
+               "  -h                print this help and exit\n"
                "\n"
                "Environment:\n"
                "  SESSION_LAYER_DIR  directory where writes are stored\n"
@@ -424,9 +443,11 @@ int main(int argc, char *argv[])
         return 0;
     }
 
-    // scan argv for -c <configfile> and build a clean argv for fuse_main
-    // (FUSE doesn't know about -c and would error on it)
+    // scan argv for -c <configfile>, -n <name>, --desc <description> and build a
+    // clean argv for fuse_main (FUSE doesn't know about these and would error on them)
     const char *config_path = NULL;
+    const char *session_name = NULL;
+    const char *session_desc = NULL;
     char **fuse_argv = malloc(argc * sizeof(char *));
     
     if (!fuse_argv) {
@@ -434,12 +455,17 @@ int main(int argc, char *argv[])
     
         return 1;
     }
+
     int fuse_argc = 0;
 
     for (int i = 0; i < argc; i++) {
        
         if (strcmp(argv[i], "-c") == 0 && i + 1 < argc) {
             config_path = argv[++i];
+        } else if (strcmp(argv[i], "-n") == 0 && i + 1 < argc) {
+            session_name = argv[++i];
+        } else if (strcmp(argv[i], "--desc") == 0 && i + 1 < argc) {
+            session_desc = argv[++i];
         } else {
             fuse_argv[fuse_argc++] = argv[i];
         }
@@ -447,10 +473,17 @@ int main(int argc, char *argv[])
 
     if (configure_layers(config_path) != 0) {
         free(fuse_argv);
+
         return 1;
     }
 
+    // give session a name & description on first time when mounted, later
+    // mounts use existing manifest
+    mkdir_p(session_path, 0755);
+    write_session_manifest(session_name, session_desc);
+
     int ret = fuse_main(fuse_argc, fuse_argv, &myfs_oper, NULL);
     free(fuse_argv);
+
     return ret;
 }
