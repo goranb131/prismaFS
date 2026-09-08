@@ -92,6 +92,10 @@ int  cow_file(const char *src, const char *dst, mode_t mode);
 int  cow_xattrs(const char *src, const char *dst);
 int  expand_tilde(const char *in, char *out, size_t outsz);
 int  mkdir_p(const char *path, mode_t mode);
+int  write_session_manifest(const char *name, const char *description);
+int  configure_layers(const char *config_path);
+int  prismafs_fuse_foreground(const char *mountpoint);
+int  ns_command(int argc, char **argv);
 
 /* -------------------------------------------------------------
    FUSE operation signatures (differences FUSE2(macOS) vs FUSE3(Linux)
