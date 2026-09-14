@@ -155,6 +155,27 @@ int mkdir_p(const char *path, mode_t mode)
     return 0;
 }
 
+// build manifest path for any session directory
+//
+// Example:
+//    /tmp/session -> /tmp/session.prismafs-session 
+//
+// called by write_session_manifest() and export/import in export.c
+//
+int session_manifest_path(const char *session_dir, char out[PATH_MAX])
+{
+    size_t len = strlen(session_dir);
+
+    while (len > 1 && session_dir[len - 1] == '/')
+        len--;
+
+    if ((size_t)snprintf(out, PATH_MAX, "%.*s.prismafs-session",
+                          (int)len, session_dir) >= PATH_MAX)
+        return -1;
+
+    return 0;
+}
+
 // writes small info file alongside session_path, not inside it (to never show
 // as a file in mounted view) with name, creation time, description and
 // base layers. done once, if already exists, session keeps
@@ -162,14 +183,8 @@ int mkdir_p(const char *path, mode_t mode)
 int write_session_manifest(const char *name, const char *description)
 {
     char manifest_path[PATH_MAX];
-    size_t len = strlen(session_path);
 
-    while (len > 1 && session_path[len - 1] == '/')
-        len--;
-
-    if ((size_t)snprintf(manifest_path, sizeof(manifest_path), "%.*s.prismafs-session",
-                          (int)len, session_path) >= sizeof(manifest_path))
-
+    if (session_manifest_path(session_path, manifest_path) != 0)
         return -1;
 
     if (access(manifest_path, F_OK) == 0)

@@ -414,7 +414,13 @@ int main(int argc, char *argv[])
     // private mount namespace so nothing outside that command sees the layered view
     if (argc > 1 && strcmp(argv[1], "ns") == 0)
         return ns_command(argc, argv);
+    // prismafs export/import - session dir and belonging manifest into TAR
+    // - or unarchive TAR back into session
+    if (argc > 1 && strcmp(argv[1], "export") == 0)
+        return export_command(argc, argv);
 
+    if (argc > 1 && strcmp(argv[1], "import") == 0)
+        return import_command(argc, argv);
     // POSIX version flag
     if (argc > 1 && (strcmp(argv[1], "-v") == 0 || strcmp(argv[1], "-V") == 0)) {
         printf("PrismaFS Version: %s\n", PRISMAFS_VERSION);
@@ -424,6 +430,8 @@ int main(int argc, char *argv[])
     if (argc > 1 && (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0)) {
         printf("Usage: prismafs [-c <config>] [-n <name>] [--desc <description>] <mountpoint>\n"
                "       prismafs init\n"
+               "       prismafs export [-o <archive.tar>] <session-dir>\n"
+               "       prismafs import <archive.tar> <dest-dir>\n"
                "       prismafs -v\n"
                "\n"
                "Options:\n"
