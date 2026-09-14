@@ -485,9 +485,18 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    if (mkdir_p(session_path, 0755) != 0) {
+        
+        fprintf(stderr, "prismafs: cannot create session directory '%s': %s\n",
+                session_path, strerror(errno));
+
+        free(fuse_argv);
+
+        return 1;
+    }
+
     // give session a name & description on first time when mounted, later
     // mounts use existing manifest
-    mkdir_p(session_path, 0755);
     write_session_manifest(session_name, session_desc);
 
     int ret = fuse_main(fuse_argc, fuse_argv, &myfs_oper, NULL);
