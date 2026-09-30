@@ -427,6 +427,11 @@ int main(int argc, char *argv[])
     if (argc > 1 && strcmp(argv[1], "diff") == 0)
         return diff_command(argc, argv);
 
+    // prismafs replay - choose target directory and permanently apply 
+    // prismaFS session "snapshot" to it
+    if (argc > 1 && strcmp(argv[1], "replay") == 0)
+        return replay_command(argc, argv);
+
     // POSIX version flag
     if (argc > 1 && (strcmp(argv[1], "-v") == 0 
         || strcmp(argv[1], "-V") == 0)) {
@@ -441,6 +446,7 @@ int main(int argc, char *argv[])
                "       prismafs export [-o <archive.tar>] <session-dir>\n"
                "       prismafs import <archive.tar> <dest-dir>\n"
                "       prismafs diff <session-dir>\n"
+               "       prismafs replay <session-dir> <target-dir>\n"
                "       prismafs -v\n"
                "\n"
                "Options:\n"

@@ -100,6 +100,7 @@ int  ns_command(int argc, char **argv);
 int  export_command(int argc, char **argv);
 int  import_command(int argc, char **argv);
 int  diff_command(int argc, char **argv);
+int  replay_command(int argc, char **argv);
 
 /* -------------------------------------------------------------
    FUSE operation signatures (differences FUSE2(macOS) vs FUSE3(Linux)
