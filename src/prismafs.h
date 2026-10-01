@@ -24,7 +24,7 @@
 #else
 #define FUSE_USE_VERSION 29
 #endif
-#define PRISMAFS_VERSION "1.7.1"
+#define PRISMAFS_VERSION "1.8.0"
 #define MAX_BASE_LAYERS 10
 
 #include <fuse.h>
