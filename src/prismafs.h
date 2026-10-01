@@ -46,6 +46,8 @@
 #include <sys/utsname.h>
 #include <stdint.h>
 
+#include "marker.h"   // is_deleted_marker(): the one definition of a .deleted marker
+
 // ENOATTR = "xattr not found" error on macOS
 // ENODATA on Linux
 #ifndef ENOATTR

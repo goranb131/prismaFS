@@ -69,9 +69,21 @@ uninstall:
 	@rm -f $(MANDIR)/$(notdir $(MANPAGE))
 	@echo "Uninstallation complete."
 
+# unit tests that need no FUSE and no mount: pure logic on names
+TEST_SRC = $(wildcard tests/test_*.c)
+TEST_BIN = $(TEST_SRC:tests/%.c=build/%)
+
+build/%: tests/%.c
+	@mkdir -p build
+	$(CC) $(CFLAGS) -o $@ $<
+
+test: $(TEST_BIN)
+	@for t in $(TEST_BIN); do echo "== $$t"; ./$$t || exit 1; done
+	@echo "All tests passed."
+
 # clean up build artifacts
 clean:
-	rm -f $(TARGET) $(TARGET)-static-linux
+	rm -f $(TARGET) $(TARGET)-static-linux $(TEST_BIN)
 	@echo "Cleaned up build files."
 
 # static-libfuse3 Linux build, avoid depending on the host libfuse3
