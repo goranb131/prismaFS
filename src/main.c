@@ -432,6 +432,17 @@ int main(int argc, char *argv[])
     if (argc > 1 && strcmp(argv[1], "replay") == 0)
         return replay_command(argc, argv);
 
+    // prismafs keygen/sign/verify - Ed25519 id, session signing and
+    // signature verification SHA-256 tree hash 
+    if (argc > 1 && strcmp(argv[1], "keygen") == 0)
+        return keygen_command(argc, argv);
+
+    if (argc > 1 && strcmp(argv[1], "sign") == 0)
+        return sign_command(argc, argv);
+
+    if (argc > 1 && strcmp(argv[1], "verify") == 0)
+        return verify_command(argc, argv);
+
     // POSIX version flag
     if (argc > 1 && (strcmp(argv[1], "-v") == 0 
         || strcmp(argv[1], "-V") == 0)) {
@@ -447,6 +458,9 @@ int main(int argc, char *argv[])
                "       prismafs import <archive.tar> <dest-dir>\n"
                "       prismafs diff <session-dir>\n"
                "       prismafs replay <session-dir> <target-dir>\n"
+               "       prismafs keygen\n"
+               "       prismafs sign <session-dir>\n"
+               "       prismafs verify <session-dir> [-k <pubkey-file>]\n"
                "       prismafs -v\n"
                "\n"
                "Options:\n"

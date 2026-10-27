@@ -24,6 +24,12 @@ FUSE_LIBS := $(shell pkg-config --libs fuse3 2>/dev/null)
 FUSE_MISSING_MSG := libfuse3 not found by pkg-config. Install libfuse3 and its development headers
 endif
 
+# libsodium - SHA-256 + Ed25519 for session signing (keygen/sign/verify)
+# pkg-config pattern like FUSE above
+SODIUM_CFLAGS := $(shell pkg-config --cflags libsodium 2>/dev/null)
+SODIUM_LIBS := $(shell pkg-config --libs libsodium 2>/dev/null)
+SODIUM_MISSING_MSG := libsodium not found by pkg-config. Install libsodium and its development headers
+
 # binary name
 TARGET = prismafs
 
@@ -48,7 +54,11 @@ $(TARGET): $(SRC)
 		echo "Error: $(FUSE_MISSING_MSG)" >&2; \
 		exit 1; \
 	fi
-	$(CC) $(CFLAGS) $(FUSE_CFLAGS) -o $(TARGET) $(SRC) $(FUSE_LIBS)
+	@if [ -z "$(SODIUM_LIBS)" ]; then \
+		echo "Error: $(SODIUM_MISSING_MSG)" >&2; \
+		exit 1; \
+	fi
+	$(CC) $(CFLAGS) $(FUSE_CFLAGS) $(SODIUM_CFLAGS) -o $(TARGET) $(SRC) $(FUSE_LIBS) $(SODIUM_LIBS)
 	@echo "Build complete: $(TARGET)"
 
 # install the binary and man page to the system path
@@ -77,10 +87,11 @@ clean:
 # static-libfuse3 Linux build, avoid depending on the host libfuse3
 # soname at runtime (glibc is dynamic, only libfuse3 static).
 LIBFUSE3_STATIC ?= /usr/local/lib/libfuse3.a
+SODIUM_STATIC ?= /usr/local/lib/libsodium.a
 
 static-linux: $(SRC)
-	$(CC) $(CFLAGS) $(shell pkg-config --cflags fuse3) -o $(TARGET)-static-linux $(SRC) $(LIBFUSE3_STATIC) -pthread -ldl
-	@echo "Build complete (static libfuse3): $(TARGET)-static-linux"
+	$(CC) $(CFLAGS) $(shell pkg-config --cflags fuse3) $(shell pkg-config --cflags libsodium) -o $(TARGET)-static-linux $(SRC) $(LIBFUSE3_STATIC) $(SODIUM_STATIC) -pthread -ldl
+	@echo "Build complete (static libfuse3 + libsodium): $(TARGET)-static-linux"
 
 # run binary for testing
 run: all
