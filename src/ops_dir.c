@@ -78,7 +78,7 @@ int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     if (dp != NULL) {
         while ((de = readdir(dp)) != NULL) {
             // skip hidden files and .deleted markers
-            if (de->d_name[0] == '.' || strstr(de->d_name, ".deleted") != NULL)
+            if (de->d_name[0] == '.' || is_deleted_marker(de->d_name))
                 continue;
 
             // skip when already in linked list
@@ -195,8 +195,7 @@ int myfs_rmdir(const char *path) {
         if (dp) {
             struct dirent *de;
             while ((de = readdir(dp)) != NULL) {
-                size_t len = strlen(de->d_name);
-                if (len > 8 && strcmp(de->d_name + len - 8, ".deleted") == 0) {
+                if (is_deleted_marker(de->d_name)) {
                     char marker[PATH_MAX];
                     snprintf(marker, PATH_MAX, "%s/%s", session_fpath, de->d_name);
                     unlink(marker);
