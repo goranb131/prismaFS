@@ -1,6 +1,6 @@
 /*
  * PrismaFS: A lightweight, layered filesystem.
- * Version: 1.8.0
+ * Version: 1.9.0
  * Copyright 2026 Goran Bunić
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -24,7 +24,7 @@
 #else
 #define FUSE_USE_VERSION 29
 #endif
-#define PRISMAFS_VERSION "1.8.0"
+#define PRISMAFS_VERSION "1.9.0"
 #define MAX_BASE_LAYERS 10
 
 #include <fuse.h>
