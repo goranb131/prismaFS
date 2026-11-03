@@ -387,21 +387,30 @@ static struct fuse_operations myfs_oper = {
     // extend operations here
 };
 
-// fakes argv for fuse_main, then prismafs ns can mount in foreground from inside
-// forked child. FUSE setup as normal mount, but without real shell command line
+// - fake argv for fuse_main
+// - then prismafs ns/shell mounts in foreground inside forked child
+// FUSE normal mount but without real shell cmd line
 int prismafs_fuse_foreground(const char *mountpoint)
 {
     char mnt[PATH_MAX];
-    char arg0[] = "prismafs";
-    char arg1[] = "-f";
-    char arg2[] = "-o";
-    char arg3[] = "auto_unmount";
 
     if (snprintf(mnt, sizeof(mnt), "%s", mountpoint) >= (int)sizeof(mnt))
         return 1;
 
+#ifdef __linux__
+    // auto_unmount is FUSE3/Linux option, on macOS FUSE rejected (unknown)
+    char arg0[] = "prismafs";
+    char arg1[] = "-f";
+    char arg2[] = "-o";
+    char arg3[] = "auto_unmount";
     char *args[] = { arg0, arg1, arg2, arg3, mnt, NULL };
     return fuse_main(5, args, &myfs_oper, NULL);
+#else
+    char arg0[] = "prismafs";
+    char arg1[] = "-f";
+    char *args[] = { arg0, arg1, mnt, NULL };
+    return fuse_main(3, args, &myfs_oper, NULL);
+#endif
 }
 
 int main(int argc, char *argv[])
@@ -410,10 +419,16 @@ int main(int argc, char *argv[])
     if (argc > 1 && strcmp(argv[1], "init") == 0)
         return run_init();
 
-    // prismafs ns - Linux only, runs command with prismafs mounted over one path,
-    // private mount namespace so nothing outside that command sees the layered view
+    // prismafs ns - Linux only! 
+    // - private mount namespace  
+    // - nothing outside can see its layered view
     if (argc > 1 && strcmp(argv[1], "ns") == 0)
         return ns_command(argc, argv);
+
+    // prismafs shell - normal mount, dropped into session subshell
+    // - keep or discard on exit
+    if (argc > 1 && strcmp(argv[1], "shell") == 0)
+        return shell_command(argc, argv);
     // prismafs export/import - session dir and belonging manifest into TAR
     // - or unarchive TAR back into session
     if (argc > 1 && strcmp(argv[1], "export") == 0)
@@ -454,6 +469,7 @@ int main(int argc, char *argv[])
     if (argc > 1 && (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0)) {
         printf("Usage: prismafs [-c <config>] [-n <name>] [--desc <description>] <mountpoint>\n"
                "       prismafs init\n"
+               "       prismafs shell [-c <config>] [-n <name>] [--desc <description>] <mountpoint>\n"
                "       prismafs export [-o <archive.tar>] <session-dir>\n"
                "       prismafs import <archive.tar> <dest-dir>\n"
                "       prismafs diff <session-dir>\n"

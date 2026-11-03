@@ -97,6 +97,7 @@ int  write_session_manifest(const char *name, const char *description);
 int  configure_layers(const char *config_path);
 int  prismafs_fuse_foreground(const char *mountpoint);
 int  ns_command(int argc, char **argv);
+int  shell_command(int argc, char **argv);
 int  export_command(int argc, char **argv);
 int  import_command(int argc, char **argv);
 int  diff_command(int argc, char **argv);

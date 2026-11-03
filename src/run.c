@@ -262,6 +262,38 @@ static void rmdir_keep(const char *keep_root)
     rmdir(keep_root);
 }
 
+// recursive delete of session dir on discard. missing path is not an error
+static int rmrf(const char *path)
+{
+    struct stat st;
+
+    if (lstat(path, &st) != 0)
+        return 0;
+
+    if (!S_ISDIR(st.st_mode))
+        return unlink(path);
+
+    DIR *dp = opendir(path);
+
+    if (dp) {
+        struct dirent *de;
+
+        while ((de = readdir(dp)) != NULL) {
+            if (strcmp(de -> d_name, ".") == 0 || strcmp(de -> d_name, "..") == 0)
+                continue;
+
+            char child[PATH_MAX];
+
+            snprintf(child, sizeof(child), "%s/%s", path, de -> d_name);
+            rmrf(child);
+        }
+
+        closedir(dp);
+    }
+
+    return rmdir(path);
+}
+
 // entry point for "prismafs ns <path> -- <command> [args...]"
 // idea is, mount prismafs somewhere private, bind it on top of <path> inside private
 // mount namespace, then exec command. only that process (and its children) sees the
@@ -555,6 +587,22 @@ int ns_command(int argc, char **argv)
 
     rmdir(tmpl);
     rmdir_keep(keep);
+
+    // show session state, commit or discard 
+    char *diff_argv[] = { (char *)"prismafs", (char *)"diff", session_path };
+    diff_command(3, diff_argv);
+
+    printf("\nkeep this session? [y/N] ");
+    fflush(stdout);
+
+    char resp[16] = {0};
+
+    if (fgets(resp, sizeof(resp), stdin) && (resp[0] == 'y' || resp[0] == 'Y'))
+        run_dbg("session kept at %s", session_path);
+    else {
+        rmrf(session_path);
+        run_dbg("session discarded (%s removed)", session_path);
+    }
 
     if (WIFEXITED(status))
         return WEXITSTATUS(status);
