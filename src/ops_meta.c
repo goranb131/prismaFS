@@ -21,36 +21,31 @@ int myfs_getattr(const char *path, struct stat *stbuf) {
 
     memset(stbuf, 0, sizeof(struct stat));
 
-    // handle special /dev directory and /dev/cpu file
-    if (strcmp(path, "/") == 0 || strcmp(path, "/dev") == 0) {
-        stbuf->st_mode  = S_IFDIR | 0755; // directory permissions
-        stbuf->st_nlink = 2;
+    // handle synthetic top dirs (/dev, /net) and registered files
+    if (strcmp(path, "/") == 0 || strcmp(path, "/dev") == 0
+        || (strcmp(path, "/net") == 0 && syn_cnt("net") > 0)) 
+    {
+        stbuf -> st_mode  = S_IFDIR | 0755; 
+        stbuf -> st_nlink = 2;
+
         return 0;
-    } else if (strcmp(path, "/dev/cpu") == 0) {
 
-        char cpu_brand[256];
-        #ifdef __APPLE__
-        size_t len_cpu_brand = sizeof(cpu_brand);
+    } else {
+        const syn_entry_t *se = syn_fp(path);
 
-        if (sysctlbyname("machdep.cpu.brand_string", cpu_brand, &len_cpu_brand, NULL, 0) == -1)
-            strncpy(cpu_brand, "Unknown CPU", sizeof(cpu_brand) - 1);
+        if (se) {
+            char tmp[2048];
+            int len = se->gen(tmp, sizeof(tmp));
 
-        #else
+            if (len < 0)
+                return -EIO;
 
-        struct utsname uts;
-        if (uname(&uts) == 0)
-            snprintf(cpu_brand, sizeof(cpu_brand), "%s", uts.machine);
-        else
-            strncpy(cpu_brand, "Unknown CPU", sizeof(cpu_brand) - 1);
+            stbuf -> st_mode  = S_IFREG | 0444;
+            stbuf -> st_nlink = 1;
+            stbuf -> st_size  = len;
 
-        #endif
-
-        size_t content_length = strlen("CPU Brand: ") + strlen(cpu_brand) + 1;
-
-        stbuf->st_mode  = S_IFREG | 0444;
-        stbuf->st_nlink = 1;
-        stbuf->st_size  = content_length;
-        return 0;
+            return 0;
+        }
     }
 
     char fpath[PATH_MAX];
@@ -99,8 +94,10 @@ int myfs_access(const char *path, int mask) {
     if (strcmp(path, "/") == 0)
         return 0;
 
-    // /dev = synthetic read-only dir, /dev/cpu = synthetic read-only file
-    if (strcmp(path, "/dev") == 0 || strcmp(path, "/dev/cpu") == 0)
+    // synthetic top dirs & registered synthetic files = READ_ONLY
+    if ( strcmp(path, "/dev") == 0 
+       || strcmp(path, "/net") == 0 
+       || syn_fp(path) != NULL)
         return (mask & W_OK) ? -EACCES : 0;
 
     char fpath[PATH_MAX];

@@ -14,8 +14,9 @@
 // open operation func implementation
 int myfs_open(const char *path, struct fuse_file_info *fi)
 {
-    // opening /dev/cpu
-    if (strcmp(path, "/dev/cpu") == 0) {
+    // opening registered synth file (/dev/cpu, /net/interfaces, etc)
+    if (syn_fp(path) != NULL) 
+    {
         return 0;
     }
 
@@ -70,41 +71,24 @@ int myfs_statfs(const char *path, struct statvfs *stbuf) {
 int myfs_read(const char *path, char *buf, size_t size, off_t offset,
               struct fuse_file_info *fi) {
 
-    // for reading from /dev/cpu
-    if (strcmp(path, "/dev/cpu") == 0) {
-        // generate CPU stats
-        char cpu_info[1024];
-        int len;
+    // for reading from registered synthetic file
+    const syn_entry_t *se = syn_fp(path);
 
-        // get CPU brand string
-        char cpu_brand[256];
-        #ifdef __APPLE__
-        size_t len_cpu_brand = sizeof(cpu_brand);
+    if (se) 
+    {
+        char tmp[2048];
+        int len = se -> gen(tmp, sizeof(tmp));
 
-        if (sysctlbyname("machdep.cpu.brand_string", cpu_brand, &len_cpu_brand, NULL, 0) == -1) {
-            perror("sysctlbyname");
+        if (len < 0)
             return -EIO;
-        }
 
-        #else
-
-        struct utsname uts;
-        if (uname(&uts) == -1) {
-            perror("uname");
-            return -EIO;
-        }
-
-        snprintf(cpu_brand, sizeof(cpu_brand), "%s", uts.machine);
-
-        #endif
-
-        len = snprintf(cpu_info, sizeof(cpu_info), "CPU Brand: %s\n", cpu_brand);
-
-        // for offset
-        if (offset < len) {
+        if (offset < len) 
+        {
             if (offset + size > (size_t)len)
                 size = len - offset;
-            memcpy(buf, cpu_info + offset, size);
+
+            memcpy(buf, tmp + offset, size);
+
         } else {
             size = 0;
         }

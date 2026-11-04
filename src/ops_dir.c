@@ -52,23 +52,46 @@ int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
                 goto cleanup;
             add_to_list(&filename_list, "dev");
         }
-    } else if (strcmp(path, "/dev") == 0) {
+
+        // include "net" dir IF something is enabled there
+        if (syn_cnt("net") > 0 && !is_in_list(filename_list, "net")) 
+        {
+            struct stat st;
+        
+            memset(&st, 0, sizeof(st));
+
+            st.st_mode = S_IFDIR | 0755;
+
+            if (FUSE_FILL(buf, "net", &st, 0))
+                goto cleanup;
+
+            add_to_list(&filename_list, "net");
+        }
+    } else if (strcmp(path, "/dev") == 0 || strcmp(path, "/net") == 0) {
         // add std entries
         FUSE_FILL(buf, ".", NULL, 0);
         FUSE_FILL(buf, "..", NULL, 0);
 
-        // "cpu" file
-        if (!is_in_list(filename_list, "cpu")) {
-            struct stat st;
-            memset(&st, 0, sizeof(st));
-            st.st_mode = S_IFREG | 0444; // regular file, read-only permissions
+        // list every enabled synthetic file registered for this top dir
+        const char *dir = path + 1; // "dev" or "net"
+        int n = syn_cnt(dir);
 
-            if (FUSE_FILL(buf, "cpu", &st, 0))
+        for (int i = 0; i < n; i++) 
+        {
+            const char *name = syn_nm(dir, i);
+            struct stat st;
+
+            memset(&st, 0, sizeof(st));
+
+            st.st_mode = S_IFREG | 0444; // read-only
+
+            if (FUSE_FILL(buf, name, &st, 0))
                 goto cleanup;
-            add_to_list(&filename_list, "cpu");
+
+            add_to_list(&filename_list, name);
         }
 
-        goto cleanup; // "/dev" only contains "cpu"
+        goto cleanup; 
     }
 
     // read files from session layer

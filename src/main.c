@@ -17,6 +17,7 @@ static const char *base_path_initial = "/"; // default base layer path fallback
 // directives (one per line, # for comments):
 //   session <path>   - session layer directory (required once)
 //   base <path>      - base layer directory (required once or more. order = priority)
+//   synthetic <name> - include extra synthetic file 
 static int load_config(const char *config_path)
 {
     FILE *f = fopen(config_path, "r");
@@ -90,6 +91,9 @@ static int load_config(const char *config_path)
             strncpy(base_paths[num_base_layers], resolved, PATH_MAX - 1);
             base_paths[num_base_layers][PATH_MAX - 1] = '\0';
             num_base_layers++;
+
+        } else if (strcmp(keyword, "synthetic") == 0) {
+            syn_en(value);
 
         } else {
             fprintf(stderr, "prismafs: unknown config directive '%s', ignoring\n", keyword);

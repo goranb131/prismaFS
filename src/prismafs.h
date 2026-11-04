@@ -81,6 +81,22 @@ struct filename_node {
 };
 
 /* -------------------------------------------------------------
+   for SYNTHETIC files (synthetic.c) - /<dir>/<name> 
+   cpu (dev) is current default, more can be included with "synthetic <name>"
+   -------------------------------------------------------------
+*/
+typedef struct {
+    const char *dir;   // "dev", "net"
+    const char *name;  // "cpu", "interfaces"
+    int (*gen)(char *buf, size_t bufsize); // fills buf, returns content len or -1
+} syn_entry_t;
+
+void syn_en(const char *name);
+int  syn_cnt(const char *dir);
+const char *syn_nm(const char *dir, int idx);
+const syn_entry_t *syn_fp(const char *path);
+
+/* -------------------------------------------------------------
    LAYER HELPERS (layers.c) 
    -------------------------------------------------------------
 */
