@@ -67,13 +67,28 @@ int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 
             add_to_list(&filename_list, "net");
         }
-    } else if (strcmp(path, "/dev") == 0 || strcmp(path, "/net") == 0) {
+
+        // include "sys" dir IF something is enabled there
+        if (syn_cnt("sys") > 0 && !is_in_list(filename_list, "sys")) 
+        {
+            struct stat st;
+        
+            memset(&st, 0, sizeof(st));
+
+            st.st_mode = S_IFDIR | 0755;
+
+            if (FUSE_FILL(buf, "sys", &st, 0))
+                goto cleanup;
+
+            add_to_list(&filename_list, "sys");
+        }
+    } else if (strcmp(path, "/dev") == 0 || strcmp(path, "/net") == 0 || strcmp(path, "/sys") == 0) {
         // add std entries
         FUSE_FILL(buf, ".", NULL, 0);
         FUSE_FILL(buf, "..", NULL, 0);
 
         // list every enabled synthetic file registered for this top dir
-        const char *dir = path + 1; // "dev" or "net"
+        const char *dir = path + 1; // "dev", "net" or "sys"
         int n = syn_cnt(dir);
 
         for (int i = 0; i < n; i++) 

@@ -15,6 +15,11 @@
  * Initial case: cpu under /dev is included. More added with "synthetic <name>" 
  *  - registry row & generator func to extend
  *
+ * Note: for resources/stats as file, only "dev", "net" and "sys" are currently recognized
+ * as top level dirs (hardcoded in ops_meta.c, ops_dir.c) when using: "synthetic <dir>/<name>
+ * <cmd>". This would be sufficient for idea of resource as file model on UNIX,
+ * but is OPEN to future design changes or decisions.
+ *
  **/
 
 #include "prismafs.h"

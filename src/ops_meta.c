@@ -21,9 +21,10 @@ int myfs_getattr(const char *path, struct stat *stbuf) {
 
     memset(stbuf, 0, sizeof(struct stat));
 
-    // handle synthetic top dirs (/dev, /net) and registered files
+    // handle synthetic top dirs (/dev, /net, /sys) and registered files
     if (strcmp(path, "/") == 0 || strcmp(path, "/dev") == 0
-        || (strcmp(path, "/net") == 0 && syn_cnt("net") > 0)) 
+        || (strcmp(path, "/net") == 0 && syn_cnt("net") > 0)
+        || (strcmp(path, "/sys") == 0 && syn_cnt("sys") > 0)) 
     {
         stbuf -> st_mode  = S_IFDIR | 0755; 
         stbuf -> st_nlink = 2;
@@ -97,6 +98,7 @@ int myfs_access(const char *path, int mask) {
     // synthetic top dirs & registered synthetic files = READ_ONLY
     if ( strcmp(path, "/dev") == 0 
        || strcmp(path, "/net") == 0 
+       || strcmp(path, "/sys") == 0 
        || syn_fp(path) != NULL)
         return (mask & W_OK) ? -EACCES : 0;
 
