@@ -35,7 +35,7 @@ int myfs_getattr(const char *path, struct stat *stbuf) {
 
         if (se) {
             char tmp[2048];
-            int len = se->gen(tmp, sizeof(tmp));
+            int len = syn_gen(se, tmp, sizeof(tmp));
 
             if (len < 0)
                 return -EIO;

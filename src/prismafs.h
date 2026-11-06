@@ -88,13 +88,16 @@ struct filename_node {
 typedef struct {
     const char *dir;   // "dev", "net"
     const char *name;  // "cpu", "interfaces"
-    int (*gen)(char *buf, size_t bufsize); // fills buf, returns content len or -1
+    int (*gen)(char *buf, size_t bufsize); // fills buf, return content len or -1, NULL when cmd based
+    const char *cmd;   // shell command for user defined entries, NULL for previous compiled gen
 } syn_entry_t;
 
 void syn_en(const char *name);
+void syn_add_cmd(const char *dir, const char *name, const char *cmd);
 int  syn_cnt(const char *dir);
 const char *syn_nm(const char *dir, int idx);
 const syn_entry_t *syn_fp(const char *path);
+int syn_gen(const syn_entry_t *se, char *buf, size_t bufsize);
 
 /* -------------------------------------------------------------
    LAYER HELPERS (layers.c) 

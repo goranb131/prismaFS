@@ -77,7 +77,7 @@ int myfs_read(const char *path, char *buf, size_t size, off_t offset,
     if (se) 
     {
         char tmp[2048];
-        int len = se -> gen(tmp, sizeof(tmp));
+        int len = syn_gen(se, tmp, sizeof(tmp));
 
         if (len < 0)
             return -EIO;

@@ -17,7 +17,8 @@ static const char *base_path_initial = "/"; // default base layer path fallback
 // directives (one per line, # for comments):
 //   session <path>   - session layer directory (required once)
 //   base <path>      - base layer directory (required once or more. order = priority)
-//   synthetic <name> - include extra synthetic file 
+//   synthetic <name>       - include extra pre-compiled synthetic file
+//   synthetic <dir>/<name> <cmd...> - user defined command based synthetic file
 static int load_config(const char *config_path)
 {
     FILE *f = fopen(config_path, "r");
@@ -25,6 +26,47 @@ static int load_config(const char *config_path)
     if (!f) {
         fprintf(stderr, "prismafs: cannot open config file '%s': %s\n",
                 config_path, strerror(errno));
+        return -1;
+    }
+
+    // config can define runnable commands (synthetic dir/name cmd), so 
+    // dont trust if someone besides owner did edit
+    struct stat cfg_st;
+
+    if (fstat(fileno(f), &cfg_st) != 0) 
+    {
+        fprintf( stderr
+               , "prismafs: cannot stat config file '%s': %s\n"
+               , config_path
+               , strerror(errno)
+               );
+
+        fclose(f);
+
+        return -1;
+    }
+
+    if (cfg_st.st_uid != getuid() && getuid() != 0) 
+    {
+        fprintf( stderr
+               , "prismafs: config file '%s' is not owned by you, refusing to load\n"
+               , config_path
+               );
+
+        fclose(f);
+
+        return -1;
+    }
+
+    if (cfg_st.st_mode & (S_IWGRP | S_IWOTH)) 
+    {
+        fprintf(stderr
+               , "prismafs: config file '%s' is group/world-writable, refusing to load\n"
+               , config_path
+               );
+
+        fclose(f);
+
         return -1;
     }
 
@@ -46,18 +88,31 @@ static int load_config(const char *config_path)
         if (*p == '\0' || *p == '#') continue;
 
         char keyword[16];
-        char value[4096];
+        int kwlen = 0;
 
-        if (sscanf(p, "%15s %4095s", keyword, value) != 2) {
-            fprintf(stderr, "prismafs: ignoring malformed config line: %s\n", p);
+        if (sscanf(p, "%15s%n", keyword, &kwlen) != 1) 
+        {
+            fprintf( stderr
+                   , "prismafs: ignoring malformed config line: %s\n"
+                   , p);
+
             continue;
         }
+
+        char *rest = p + kwlen;
+        while (*rest == ' ' || *rest == '\t') rest++;
+
+        char value[4096];
+        int vlen = 0;
+        value[0] = '\0';
+        sscanf(rest, "%4095s%n", value, &vlen);
 
         char resolved[PATH_MAX];
         resolved[0] = '\0';
 
         if (strcmp(keyword, "session") == 0 || strcmp(keyword, "base") == 0) {
-            if (expand_tilde(value, resolved, sizeof(resolved)) != 0
+            if (value[0] == '\0'
+                || expand_tilde(value, resolved, sizeof(resolved)) != 0
                 || resolved[0] != '/') {
                 
                     fprintf(stderr,
@@ -93,10 +148,39 @@ static int load_config(const char *config_path)
             num_base_layers++;
 
         } else if (strcmp(keyword, "synthetic") == 0) {
-            syn_en(value);
+            // "synthetic <name>" adds pre-compiled entry
+            // "synthetic <dir>/<name> <cmd>" - command entry
+            char *slash = strchr(value, '/');
+
+            if (slash) {
+                *slash = '\0';
+                char *name = slash + 1;
+                char *cmd = rest + vlen;
+
+                while (*cmd == ' ' || *cmd == '\t') cmd++;
+
+                if (*cmd == '\0') 
+                {
+                    fprintf( stderr
+                           , "prismafs: 'synthetic %s/%s' missing command, ignoring\n"
+                           , value
+                           , name
+                           );
+
+                    continue;
+                }
+
+                syn_add_cmd(value, name, cmd);
+
+            } else {
+                syn_en(value);
+            }
 
         } else {
-            fprintf(stderr, "prismafs: unknown config directive '%s', ignoring\n", keyword);
+            fprintf( stderr
+                   , "prismafs: unknown config directive '%s', ignoring\n"
+                   , keyword
+                   );
         }
     }
 

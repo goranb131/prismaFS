@@ -45,6 +45,38 @@ static int gen_cpu(char *buf, size_t bufsize)
     return snprintf(buf, bufsize, "CPU Brand: %s\n", brand);
 }
 
+// hostname via gethostname
+static int gen_hostname(char *buf, size_t bufsize)
+{
+    char name[256];
+
+    if (gethostname(name, sizeof(name)) != 0)
+        strncpy(name, "unknown", sizeof(name) - 1);
+
+    return snprintf( buf
+                   , bufsize
+                   , "%s\n"
+                   , name);
+}
+
+// for reading dev/loadavg
+// getloadavg asks kernel for current 1/5/15min load averages
+static int gen_loadavg(char *buf, size_t bufsize)
+{
+    double avg[3];
+
+    if ( getloadavg(avg, 3) == -1)
+          return snprintf(buf, bufsize, "unavailable\n");
+
+    return snprintf( buf
+                   , bufsize
+                   , "%.2f %.2f %.2f\n"
+                   , avg[0]
+                   , avg[1]
+                   , avg[2]
+                   );
+}
+
 // func to build /net/interfaces content 
 // interface/address = one line, cross platform via getifaddrs
 static int gen_ifaces(char *buf, size_t bufsize)
@@ -107,6 +139,8 @@ static int gen_ifaces(char *buf, size_t bufsize)
 // array of structs of synthetic entries, {dir, name, gen}
 static const syn_entry_t sytab[] = {
     { "dev", "cpu",        gen_cpu },
+    { "dev", "hostname",   gen_hostname },
+    { "dev", "loadavg",    gen_loadavg },
     { "net", "interfaces", gen_ifaces },
 };
 
@@ -143,13 +177,38 @@ void syn_en(const char *name)
     nsyon++;
 }
 
-// count of enabled synth entries per dir
+// user defined command based entries
+static syn_entry_t *cytab = NULL;
+static int ncytab = 0;
+static int capcytab = 0;
+
+// register cmd entry. enabled by default
+void syn_add_cmd(const char *dir, const char *name, const char *cmd)
+{
+    if (ncytab >= capcytab) 
+    {
+        capcytab = capcytab ? capcytab * 2 : 4;
+        cytab    = realloc(cytab, capcytab * sizeof(*cytab));
+    }
+
+    cytab[ncytab].dir  = strdup(dir);
+    cytab[ncytab].name = strdup(name);
+    cytab[ncytab].gen  = NULL;
+    cytab[ncytab].cmd  = strdup(cmd);
+    ncytab++;
+}
+
+// count of enabled synth entries per dir (compiled + command-backed)
 int syn_cnt(const char *dir)
 {
     int n = 0;
 
     for (size_t i = 0; i < SYTAB_N; i++)
         if (strcmp(sytab[i].dir, dir) == 0 && is_on(sytab[i].name))
+            n++;
+
+    for (int i = 0; i < ncytab; i++)
+        if (strcmp(cytab[i].dir, dir) == 0)
             n++;
 
     return n;
@@ -172,6 +231,17 @@ const char *syn_nm(const char *dir, int idx)
         }
     }
 
+    for (int i = 0; i < ncytab; i++)
+    {
+        if (strcmp(cytab[i].dir, dir) == 0)
+        {
+            if (n == idx)
+                return cytab[i].name;
+
+            n++;
+        }
+    }
+
     return NULL;
 }
 
@@ -189,5 +259,42 @@ const syn_entry_t *syn_fp(const char *path)
             return &sytab[i];
     }
 
+    for (int i = 0; i < ncytab; i++)
+    {
+        snprintf(full, sizeof(full), "/%s/%s", cytab[i].dir, cytab[i].name);
+
+        if (strcmp(path, full) == 0)
+            return &cytab[i];
+    }
+
     return NULL;
+}
+
+// central func to handle command defined entries
+// stdout for file content when running entry command
+static int gen_cmd(const char *cmd, char *buf, size_t bufsize)
+{
+    // run command in child and provide file to read from as stdout
+    FILE *fp = popen(cmd, "r");
+
+    if (!fp)
+        return -1;
+
+    size_t n = fread(buf, 1, bufsize - 1, fp);
+
+    pclose(fp);
+
+    buf[n] = '\0';
+
+    return (int)n;
+}
+
+// compiled gen or command based
+int syn_gen(const syn_entry_t *se, char *buf, size_t bufsize)
+{
+    if (se -> gen) // does this row have compiled func pointer set
+        return se -> gen(buf, bufsize);
+
+    // when above is not true, its command based
+    return gen_cmd(se -> cmd, buf, bufsize);
 }
