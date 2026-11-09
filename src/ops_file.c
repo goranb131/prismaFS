@@ -181,6 +181,9 @@ int myfs_write(const char *path, const char *buf, size_t size,
             session copy permissions 0644 = rw-r--r-- */
         if (cow_file(base_fpath, fpath, 0644) != 0)
             return -EIO;
+
+        // BUG fix: preserve base file xattrs or first content write will silently skip them 
+        cow_xattrs(base_fpath, fpath);
     }
 
     // open file in session layer for writing
@@ -231,6 +234,9 @@ int myfs_truncate(const char *path, off_t size)
             session copy permissions 0644 = rw-r--r-- */
         if (cow_file(base_fpath, fpath, 0644) != 0)
             return -EIO;
+
+        // BUG fix: preserve base file xattrs or first content write will silently skip them 
+        cow_xattrs(base_fpath, fpath);
     }
 
     // truncate file

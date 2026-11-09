@@ -166,6 +166,7 @@ int myfs_chmod(const char *path, mode_t mode)
         } else {
             int cow_ret = cow_file(base_fpath, fpath, 0644);
             if (cow_ret != 0) return cow_ret;
+            cow_xattrs(base_fpath, fpath);
         }
     }
 
@@ -291,6 +292,7 @@ int myfs_rename(const char *from, const char *to)
         // keep original mode. old path gets .deleted marker 
         int cow_ret = cow_file(base_from, session_to, st.st_mode & 0666);
         if (cow_ret != 0) return cow_ret;
+        cow_xattrs(base_from, session_to);
     }
 
     // mask the original path in session layer
@@ -359,6 +361,7 @@ int myfs_chown(const char *path, uid_t uid, gid_t gid)
             // after that, lchown on session copy.
             int cow_ret = cow_file(base_fpath, fpath, 0644);
             if (cow_ret != 0) return cow_ret;
+            cow_xattrs(base_fpath, fpath);
         }
     }
 
