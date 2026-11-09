@@ -1,0 +1,75 @@
+# FreeBSD build file for native bmake 
+# GNU specific ifeq/$(shell ...) syntax in main Makefile)
+# make -f Makefile.bsd
+
+# compiler & flags
+CC?=cc
+CFLAGS=-Wall -D_FILE_OFFSET_BITS=64 -Isrc
+
+# fusefs-libs3 (FreeBSD port) with pkg-config module "fuse3"
+FUSE_CFLAGS!=pkg-config --cflags fuse3 2>/dev/null
+FUSE_LIBS!=pkg-config --libs fuse3 2>/dev/null
+FUSE_MISSING_MSG=libfuse3 not found by pkg-config. Install it with: pkg install fusefs-libs3
+
+# libsodium - SHA-256 + Ed25519 for session signing (keygen/sign/verify)
+SODIUM_CFLAGS!=pkg-config --cflags libsodium 2>/dev/null
+SODIUM_LIBS!=pkg-config --libs libsodium 2>/dev/null
+SODIUM_MISSING_MSG=libsodium not found by pkg-config. Install it with: pkg install libsodium
+
+# binary name
+TARGET=prismafs
+
+# source files
+SRC!=ls src/*.c
+
+# install dirs
+PREFIX?=/usr/local
+BINDIR?=${PREFIX}/bin
+MANDIR?=${PREFIX}/share/man/man1
+
+# man page name
+MANPAGE=man/prismafs.1
+
+# default target for build
+all: ${TARGET}
+
+# compile rule
+${TARGET}: ${SRC}
+	@if [ -z "${FUSE_LIBS}" ]; then \
+		echo "Error: ${FUSE_MISSING_MSG}" >&2; \
+		exit 1; \
+	fi
+	@if [ -z "${SODIUM_LIBS}" ]; then \
+		echo "Error: ${SODIUM_MISSING_MSG}" >&2; \
+		exit 1; \
+	fi
+	${CC} ${CFLAGS} ${FUSE_CFLAGS} ${SODIUM_CFLAGS} -o ${TARGET} ${SRC} ${FUSE_LIBS} ${SODIUM_LIBS}
+	@echo "Build complete: ${TARGET}"
+
+# install - binary and man page system path
+install: ${TARGET} ${MANPAGE}
+	@echo "Installing ${TARGET} to ${BINDIR}..."
+	@mkdir -p ${BINDIR}
+	@install -m 755 ${TARGET} ${BINDIR}/${TARGET}
+	@echo "Installing ${MANPAGE} to ${MANDIR}..."
+	@mkdir -p ${MANDIR}
+	@install -m 644 ${MANPAGE} ${MANDIR}/prismafs.1
+	@echo "Installation complete."
+
+# uninstall the binary and man page
+uninstall:
+	@echo "Removing ${TARGET} from ${BINDIR}..."
+	@rm -f ${BINDIR}/${TARGET}
+	@echo "Removing ${MANPAGE} from ${MANDIR}..."
+	@rm -f ${MANDIR}/prismafs.1
+	@echo "Uninstallation complete."
+
+# clean up build artifacts
+clean:
+	rm -f ${TARGET}
+	@echo "Cleaned up build files."
+
+# run binary for testing
+run: all
+	@echo "Running ${TARGET}..."
+	@./${TARGET} -v
