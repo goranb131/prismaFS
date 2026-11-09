@@ -3,6 +3,7 @@
 *.o
 *.dSYM/
 .DS_Store
+.vscode/
 
 # release builds location
 /build/**

@@ -528,8 +528,20 @@ int myfs_getxattr(const char *path, const char *name, char *value, size_t size)
     // read xattr with name from session path to get num of bytes
     // of "value" or -1 on error
     res = getxattr(fpath, name, value, size, 0, XATTR_NOFOLLOW);
+#elif defined(__FreeBSD__)
+    char fbname[256];
+
+    if (fbsd_xattr_name( name, fbname, sizeof(fbname)) != 0 )
+        return -ERANGE;
+
+    res = extattr_get_link( fpath
+                          , EXTATTR_NAMESPACE_USER
+                          , fbname
+                          , value
+                          , size
+                          );
 #else
-    // if non-Apple
+    // if Linux
     res = lgetxattr(fpath, name, value, size);
 #endif
     // success
@@ -544,6 +556,8 @@ int myfs_getxattr(const char *path, const char *name, char *value, size_t size)
     if (base_fullpath_func(fpath, path) == 0) {
 #ifdef __APPLE__
         res = getxattr(fpath, name, value, size, 0, XATTR_NOFOLLOW);
+#elif defined(__FreeBSD__)
+        res = extattr_get_link(fpath, EXTATTR_NAMESPACE_USER, fbname, value, size);
 #else
         res = lgetxattr(fpath, name, value, size);
 #endif
@@ -599,8 +613,20 @@ int myfs_setxattr(const char *path, const char *name, const char *value, size_t 
     // write new xattr into session copy
     if (setxattr(session_fpath, name, value, size, 0, flags | XATTR_NOFOLLOW) == -1)
         return -errno;
+#elif defined(__FreeBSD__)
+    char fbname[256];
+
+    if (fbsd_xattr_name(name, fbname, sizeof(fbname)) != 0)
+        return -ERANGE;
+
+    if (extattr_set_link( session_fpath
+                        , EXTATTR_NAMESPACE_USER
+                        , fbname
+                        , value
+                        , size) == -1)
+        return -errno;
 #else
-    // for non-Apple:
+    // for Linux:
     if (lsetxattr(session_fpath, name, value, size, flags) == -1)
         return -errno;
 #endif
@@ -633,8 +659,10 @@ int myfs_listxattr(const char *path, char *list, size_t size)
 #ifdef __APPLE__
     // on session path
     res = listxattr(fpath, list, size, XATTR_NOFOLLOW);
+#elif defined(__FreeBSD__)
+    res = fbsd_listxattr_link(fpath, list, size);
 #else
-    // non-Apple
+    // Linux
     res = llistxattr(fpath, list, size);
 #endif
 
@@ -650,6 +678,8 @@ int myfs_listxattr(const char *path, char *list, size_t size)
     if (base_fullpath_func(fpath, path) == 0) {
 #ifdef __APPLE__
         res = listxattr(fpath, list, size, XATTR_NOFOLLOW);
+#elif defined(__FreeBSD__)
+        res = fbsd_listxattr_link(fpath, list, size);
 #else
         res = llistxattr(fpath, list, size);
 #endif
@@ -696,6 +726,15 @@ int myfs_removexattr(const char *path, const char *name)
     // with above guaranteed, remove xattr from session copy:
 #ifdef __APPLE__
     if (removexattr(session_fpath, name, XATTR_NOFOLLOW) == -1)
+        return -errno;
+#elif defined(__FreeBSD__)
+    char fbname[256];
+
+    if (fbsd_xattr_name(name, fbname, sizeof(fbname)) != 0)
+        return -ERANGE;
+
+    if (extattr_delete_link( session_fpath
+                           , EXTATTR_NAMESPACE_USER, fbname) == -1)
         return -errno;
 #else
     if (lremovexattr(session_fpath, name) == -1)

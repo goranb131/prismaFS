@@ -19,7 +19,8 @@
 #ifndef PRISMAFS_H
 #define PRISMAFS_H
 
-#if defined(__linux__)
+// fusefs-libs3 on FreeBSD = FUSE3 compatible port
+#if defined(__linux__) || defined(__FreeBSD__)
 #define FUSE_USE_VERSION 30
 #else
 #define FUSE_USE_VERSION 29
@@ -38,7 +39,11 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/statvfs.h>
+#ifdef __FreeBSD__
+#include <sys/extattr.h> // extended attributes FreeBSD API instead of xattr
+#else
 #include <sys/xattr.h>  // extended attributes, macOS and Linux
+#endif
 #include <stdlib.h>
 #ifdef __APPLE__
 #include <sys/sysctl.h> // sysctl (macOS only)
@@ -46,7 +51,7 @@
 #include <sys/utsname.h>
 #include <stdint.h>
 
-// ENOATTR = "xattr not found" error on macOS
+// ENOATTR = "xattr not found" error on macOS & FreeBSD
 // ENODATA on Linux
 #ifndef ENOATTR
 #define ENOATTR ENODATA
@@ -109,6 +114,10 @@ int  is_in_list(struct filename_node *list, const char *name);
 void add_to_list(struct filename_node **list_ptr, const char *name);
 int  cow_file(const char *src, const char *dst, mode_t mode);
 int  cow_xattrs(const char *src, const char *dst);
+#ifdef __FreeBSD__
+int  fbsd_xattr_name(const char *name, char *out, size_t outsz);
+ssize_t fbsd_listxattr_link(const char *path, char *list, size_t size);
+#endif
 int  expand_tilde(const char *in, char *out, size_t outsz);
 int  mkdir_p(const char *path, mode_t mode);
 int  session_manifest_path(const char *session_dir, char out[PATH_MAX]);

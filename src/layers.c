@@ -132,6 +132,7 @@ int mkdir_p(const char *path, mode_t mode)
         return -1;
 
     size_t len = strlen(tmp);
+
     while (len > 1 && tmp[len - 1] == '/')
         tmp[--len] = '\0';
 
@@ -274,12 +275,12 @@ int cow_file(const char *src, const char *dst, mode_t mode)
 
 /* copies all extended attributes (regular files, directories, symlinks) from src to dest
   - for symlinks need to make sure to copy symlink xattrs , not the targets pointed to by symlink - using
-    XATTR_NOFOLLOW on macOS and l prefix functions on Linux.
+    XATTR_NOFOLLOW on macOS, l prefix functions on Linux, and extattr_*_link on FreeBSD.
 
  called after cow_file() so the session copy inherits base-layer xattrs
  before setxattr/removexattr modifies them.
- 4/6-arg xattr syscalls with XATTR_NOFOLLOW on macOS, and
- lgetxattr/lsetxattr on Linux. 
+ 4/6-arg xattr syscalls with XATTR_NOFOLLOW on macOS, lgetxattr/lsetxattr on
+ Linux, and extattr_get_link/extattr_set_link (namespace as separate arg) on FreeBSD.
 
 Function per platform: 
 
@@ -339,6 +340,80 @@ int cow_xattrs(const char *src, const char *dst)
         name += strlen(name) + 1; // next name in list
     }
     free(list);
+    
+#elif defined(__FreeBSD__)
+    // extattr_list_link returns buffer of 1 byte prefix entries
+    // and name bytes
+    ssize_t list_size = extattr_list_link( src
+                                         , EXTATTR_NAMESPACE_USER
+                                         , NULL
+                                         , 0
+                                         );
+
+    if (list_size <= 0) 
+     return 0;
+
+    unsigned char *list = malloc(list_size);
+
+    if (!list) return -ENOMEM;
+
+    if (extattr_list_link( src
+                         , EXTATTR_NAMESPACE_USER
+                         , list
+                         , list_size) == -1) 
+    {
+        free(list);
+
+        return -errno;
+    }
+
+    ssize_t off = 0;
+
+    while (off < list_size) 
+    {
+        unsigned char nlen = list[off];
+        off++;
+
+        char name[256];
+
+        if (nlen >= sizeof(name) || off + nlen > list_size) 
+         break;
+
+        memcpy(name, list + off, nlen);
+        name[nlen] = '\0';
+        off += nlen;
+
+        ssize_t val_size = extattr_get_link( src
+                                           , EXTATTR_NAMESPACE_USER
+                                           , name
+                                           , NULL
+                                           , 0
+                                           );
+
+        if (val_size > 0) 
+        {
+            char *val = malloc(val_size);
+
+            if (val) 
+            {
+                if (extattr_get_link( src
+                                    , EXTATTR_NAMESPACE_USER
+                                    , name
+                                    , val
+                                    , val_size) == val_size )
+                    extattr_set_link( dst
+                                    , EXTATTR_NAMESPACE_USER
+                                    , name
+                                    , val
+                                    , val_size
+                                    );
+
+                free(val);
+            }
+        }
+    }
+
+    free(list);
 #else
     ssize_t list_size = llistxattr(src, NULL, 0);
 
@@ -348,19 +423,27 @@ int cow_xattrs(const char *src, const char *dst)
 
     if (!list) return -ENOMEM;
 
-    if (llistxattr(src, list, list_size) == -1) {
+    if (llistxattr(src, list, list_size) == -1) 
+    {
         free(list);
+
         return -errno;
     }
 
     char *name = list;
-    while (name < list + list_size) {
+
+    while (name < list + list_size) 
+    {
         ssize_t val_size = lgetxattr(src, name, NULL, 0);
-        if (val_size > 0) {
+
+        if (val_size > 0) 
+        {
             char *val = malloc(val_size);
+
             if (val) {
                 if (lgetxattr(src, name, val, val_size) == val_size)
                     lsetxattr(dst, name, val, val_size, 0);
+
                 free(val);
             }
         }
@@ -370,3 +453,111 @@ int cow_xattrs(const char *src, const char *dst)
 #endif
     return 0;
 }
+
+#ifdef __FreeBSD__
+// - with FreeBSD extattr, namespace is separate from attribute name, while on
+// Linux/macOS its embedded in name ("user.foo") - strip "user" here
+int fbsd_xattr_name(const char *name, char *out, size_t outsz)
+{
+    const char *prefix = "user.";
+    size_t plen = strlen(prefix);
+
+    if ( strncmp(name, prefix, plen) == 0 )
+        name += plen;
+
+    if ( (size_t)snprintf(out, outsz, "%s", name) >= outsz )
+        return -1;
+
+    return 0;
+}
+
+// convert extattr_list_link prefixes with NUL separators like:
+// "user.name1\0user.name2\0...". this is what FUSE listxattr callers get.
+ssize_t fbsd_listxattr_link(const char *path, char *list, size_t size)
+{
+    ssize_t raw_size = extattr_list_link( path
+                                        , EXTATTR_NAMESPACE_USER
+                                        , NULL
+                                        , 0
+                                        );
+
+    if (raw_size < 0) 
+     return -1;
+
+    if (raw_size == 0) 
+     return 0;
+
+    unsigned char *raw = malloc(raw_size);
+
+    if (!raw) 
+    { errno = ENOMEM; 
+         return -1; 
+    }
+
+    if (extattr_list_link( path
+                         , EXTATTR_NAMESPACE_USER
+                         , raw
+                         , raw_size) == -1 ) 
+    {
+        free(raw);
+
+        return -1;
+    }
+
+    const char *prefix = "user.";
+    size_t plen = strlen(prefix);
+    size_t need = 0;
+    ssize_t off = 0;
+
+    while (off < raw_size) 
+    {
+        unsigned char nlen = raw[off];
+        off++;
+
+        if (off + nlen > raw_size) 
+         break;
+
+        need += plen + nlen + 1;
+        off += nlen;
+    }
+
+    if (size == 0) 
+    {
+        free(raw);
+
+        return (ssize_t)need;
+    }
+
+    if (need > size) 
+    {
+        free(raw);
+
+        errno = ERANGE;
+
+        return -1;
+    }
+
+    size_t w = 0;
+    off = 0;
+
+    while (off < raw_size) 
+    {
+        unsigned char nlen = raw[off];
+        off++;
+
+        if (off + nlen > raw_size) 
+         break;
+
+        memcpy(list + w, prefix, plen);
+        w += plen;
+        memcpy(list + w, raw + off, nlen);
+        w += nlen;
+        list[w++] = '\0';
+        off += nlen;
+    }
+
+    free(raw);
+
+    return (ssize_t)w;
+}
+#endif
