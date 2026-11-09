@@ -374,9 +374,11 @@ int cow_xattrs(const char *src, const char *dst)
         unsigned char nlen = list[off];
         off++;
 
-        char name[256];
+        char name[256]; 
+        // nlen >= sizeof(name) check line removed as it would always be false
+        // since nlent is unsigned char 255, would never reach >= 256
 
-        if (nlen >= sizeof(name) || off + nlen > list_size) 
+        if (off + nlen > list_size) 
          break;
 
         memcpy(name, list + off, nlen);

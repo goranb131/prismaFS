@@ -23,6 +23,7 @@
  **/
 
 #include "prismafs.h"
+#include <sys/socket.h> // struct sockaddr, AF_INET/AF_INET6, REQUIRED on FreeBSD
 #include <ifaddrs.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>

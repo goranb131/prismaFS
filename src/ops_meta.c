@@ -473,13 +473,13 @@ static int cow_entry_with_xattrs(const char *path,
         char link_target[PATH_MAX];
 
         ssize_t len = readlink(base_fpath, link_target, sizeof(link_target) - 1);
-    
-        if (len == -1) 
-         return -errno;
-        
-         link_target[len] = '\0';
-        
-         if (symlink(link_target, session_fpath) == -1 && errno != EEXIST)
+
+        if (len == -1)
+            return -errno;
+
+        link_target[len] = '\0';
+
+        if (symlink(link_target, session_fpath) == -1 && errno != EEXIST)
             return -errno;
     } else if (S_ISDIR(st.st_mode)) { // if directory
         // dirs have nothing to copy, simply create them in session with same permissions
@@ -562,11 +562,11 @@ int myfs_getxattr(const char *path, const char *name, char *value, size_t size)
         res = lgetxattr(fpath, name, value, size);
 #endif
         // found, return bytes 
-        if (res != -1) 
-         return (int)res;
-        
-         // exists in base but no xattr or any other error
-         return -errno;
+        if (res != -1)
+            return (int)res;
+
+        // exists in base but no xattr or any other error
+        return -errno;
     }
 
     return -ENOATTR;
