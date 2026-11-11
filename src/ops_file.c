@@ -42,8 +42,39 @@ int myfs_open(const char *path, struct fuse_file_info *fi)
     }
 
     // dont open with fi -> flags, because flags O_WRONLY|O_TRUNC could truncate file
-    if (base_fullpath_func(fpath, path) == 0)
+    char base_fpath[PATH_MAX];
+    if (base_fullpath_func(base_fpath, path) == 0)
+    {
+        // BUG fix: myfs_open() did nothing with O_TRUNC but returned 0 (success)
+        // so file wasn't truncated and nothing was copied from base layer, and
+        // old content bytes remained in session layer
+        // solution: myfs_open() now copies base layer xattrs/permissions and
+        // create empty file in session layer when O_TRUNC is requested - this
+        // is what kernel already assumes happened
+        if (fi -> flags & O_TRUNC)
+        {
+            char *dir_end = strrchr(fpath, '/');
+
+            if (dir_end)
+            {
+                char dir_path[PATH_MAX];
+
+                strncpy(dir_path, fpath, dir_end - fpath);
+                dir_path[dir_end - fpath] = '\0';
+                mkdir(dir_path, 0755);
+            }
+
+            int fd = open( fpath, O_WRONLY | O_CREAT | O_TRUNC, 0644 );
+            if (fd == -1)
+                return -errno;
+
+            close(fd);
+
+            cow_xattrs(base_fpath, fpath);
+        }
+
         return 0;
+    }
 
     // if after above file not in layers, log and err
     fprintf(stderr, "open: %s not found in session or base layers\n", path);
