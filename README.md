@@ -22,8 +22,8 @@ Apache-2.0 licensed.
 
 - **macOS** - FUSE2 (macFUSE). Tested.
 - **Linux** - FUSE3 (libfuse3). Tested on openSUSE Tumbleweed (native build) and via static linked libfuse3 binary built in Debian bookworm container, verified with `fusermount3 3.18.2`.
-- **FreeBSD** - in Roadmap. Not built or tested yet.
-- **Architecture** - x86_64 and Apple Silicon (ARM64). Linux binaries are currently x86_64. Linux ARM64 will become priority in future.
+- **FreeBSD** - FUSE3 (fusefs-libs3). Tested on FreeBSD 14.1-RELEASE.
+- **Architecture** - x86_64 and Apple Silicon (ARM64). Linux and FreeBSD binaries are currently x86_64. Linux ARM64 will become priority in future.
 
 For Linux binary distributions, glibc-linked binaries only run on glibc-based distros (Ubuntu, Debian, Fedora, openSUSE, Arch, RHEL family, etc.). musl-based distros (Alpine) need separate musl build, and glibc binary will not run there at all, because musl and glibc are different C library implementations with different dynamic loaders.
 
@@ -31,11 +31,18 @@ For Linux binary distributions, glibc-linked binaries only run on glibc-based di
 
 **macOS**
 - macFUSE, installed separately (kernel extension approval and reboot required on first install). See instructions on official macFUSE website to complete this single required preliminary step: https://macfuse.github.io/
+- libsodium (`brew install libsodium`), needed for session signing.
 - Homebrew is the simplest install approach. Building from source requires C compiler (cc, clang, or GCC) as usual, and *make*.
 
 **Linux**
 - libfuse3 and its development headers to build from source (`libfuse3-dev` / `fuse3-devel` depending on distro).
+- libsodium and development headers (`libsodium-dev` or `libsodium-devel` depending on distro).
 - `fusermount3` available on system (part of `fuse3` package).
+
+**FreeBSD**
+- fusefs-libs3 (`pkg install fusefs-libs3`).
+- libsodium (`pkg install libsodium`).
+- `vfs.usermount=1` should be set (`sudo sysctl vfs.usermount=1`) for unprivileged FUSE mounts.
 
 ## Installation
 
@@ -68,9 +75,20 @@ sudo make install
 
 `make install` places the binary at `/usr/local/bin/prismafs` and *man page* under `/usr/local/share/man/man1`.
 
+### FreeBSD, build from source
+
+```
+git clone git@github.com:goranb131/ITHAS-prismaFS.git
+cd ITHAS-prismaFS
+make -f Makefile.bsd
+sudo make -f Makefile.bsd install
+```
+
+`make -f Makefile.bsd install` puts binary at `/usr/local/bin/prismafs` and *man page* at `/usr/local/share/man/man1`.
+
 ### Linux, prebuilt binary
 
-Prebuilt, static linked (with libfuse3) x86_64 binary is available as alternative to building from source, attached to each [GitHub Release](https://github.com/goranb131/prismaFS/releases). It has no dependency on host's libfuse3 shared library version. Only glibc, `fusermount3`, and kernel FUSE module are requirement on target machine. This is early stage development extra, because while MacOS version uses Homebrew, Linux has the binaries option, before packages are distributed in other formats later in Roadmap.
+Prebuilt, static linked (with libfuse3 and libsodium) x86_64 binary is available as alternative to building from source, attached to each [GitHub Release](https://github.com/goranb131/prismaFS/releases). It has no dependency on host's libfuse3 or libsodium shared library versions. Only glibc, `fusermount3`, and kernel FUSE module are requirement on target machine. 
 
 To install:
 
@@ -87,7 +105,18 @@ sudo cp prismafs-<version>-linux-x86_64-static /usr/local/bin/prismafs
 sudo chmod +x /usr/local/bin/prismafs
 ```
 
-At this earlier stage of development, PrismaFS also minds Alpine and other musl-based distros, so separate static binary is attached to same [GitHub Release](https://github.com/goranb131/prismaFS/releases): `prismafs-<version>-linux-x86_64-static-musl`. It has musl and libfuse3 compiled in, so it has no dependency on host libc or libfuse3 version, and runs on any Linux distro, not only Alpine. Install steps are the same, just with this filename instead.
+PrismaFS also minds Alpine and other musl-based distros, so separate static binary is attached to same [GitHub Release](https://github.com/goranb131/prismaFS/releases): `prismafs-<version>-linux-x86_64-static-musl`. It has musl, libfuse3, and libsodium compiled in, so it has no dependency on host libc, libfuse3, or libsodium version, and runs on any Linux distro, not only Alpine. Install steps are the same, just with this filename instead.
+
+### FreeBSD, prebuilt binary
+
+Prebuilt x86_64 binary is also attached to each [GitHub Release](https://github.com/goranb131/prismaFS/releases): `prismafs-<version>-freebsd-amd64`. libsodium is statically linked. libfuse3 (fusefs-libs3) is dynamically linked, so `fusefs-libs3` must be installed first (quickly done with: `pkg install fusefs-libs3`).
+
+Install:
+
+```
+chmod +x prismafs-<version>-freebsd-amd64
+sudo cp prismafs-<version>-freebsd-amd64 /usr/local/bin/prismafs
+```
 
 ---
 
